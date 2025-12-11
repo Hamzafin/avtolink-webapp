@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Автолинк WebApp</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 16px;
+      background: #0f172a;
+      color: #e5e7eb;
+    }
+    h1 {
+      font-size: 20px;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    .subtitle {
+      font-size: 13px;
+      text-align: center;
+      color: #94a3b8;
+      margin-bottom: 16px;
+    }
+    .card {
+      background: #111827;
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      max-width: 520px;
+      margin: 0 auto;
+    }
+    .field {
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    label {
+      font-size: 13px;
+      color: #9ca3af;
+    }
+    input, select, textarea {
+      border-radius: 10px;
+      border: 1px solid #374151;
+      padding: 8px 10px;
+      font-size: 14px;
+      background: #020617;
+      color: #e5e7eb;
+      outline: none;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: #38bdf8;
+    }
+    textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+    .readonly {
+      background: #020617;
+      color: #9ca3af;
+    }
+    button {
+      width: 100%;
+      border-radius: 999px;
+      border: none;
+      padding: 10px 14px;
+      font-size: 15px;
+      font-weight: 500;
+      background: linear-gradient(135deg, #38bdf8, #6366f1);
+      color: white;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+    .small-btn {
+      width: auto !important;
+      border-radius: 999px;
+      border: none;
+      padding: 6px 10px;
+      font-size: 13px;
+      font-weight: 500;
+      background: #1f2937;
+      color: #e5e7eb;
+      cursor: pointer;
+      margin-top: 4px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Автолинк</h1>
+  <div class="subtitle" id="subtitle"></div>
+
+  <div class="card" id="formCard"></div>
+
+  <button id="submitBtn" disabled>Отправить в бота</button>
+
+  <script>
+    // --------- ПАРАМЕТРЫ ИЗ URL ---------
+    const urlParams = new URLSearchParams(window.location.search);
+    const formType = urlParams.get("type") || "unknown";
+    const categoryFromUrl = urlParams.get("category") || "";
+    const brandsParam = urlParams.get("brands") || "";
+    const investorsParam = urlParams.get("investors") || "";
+    const sourcesParam = urlParams.get("sources") || "";
+    const vinsParam = urlParams.get("vins") || "";
+    const currenciesParam = urlParams.get("currencies") || "";
+
+    const brands = brandsParam ? brandsParam.split("|") : [];
+    const investors = investorsParam ? investorsParam.split("|") : [];
+    const sources = sourcesParam ? sourcesParam.split("|") : [];
+    const vins = vinsParam ? vinsParam.split("|") : [];
+    const currencies = currenciesParam ? currenciesParam.split("|") : [];
+
+    const subtitleEl = document.getElementById("subtitle");
+    const formCard = document.getElementById("formCard");
+    const submitBtn = document.getElementById("submitBtn");
+
+    const FORM_TITLES = {
+      mgr_stock: "Сток",
+      sale_nds_broker: "Продажа — НДС с комиссией брокера",
+      sale_nds_no_broker: "Продажа — НДС без комиссии брокера",
+      sale_cash: "Продажа — Наличные",
+      sale_cash_broker: "Продажа — Наличные с комиссией",
+      sale_deposit: "Продажа — Задаток",
+      sale_extra: "Продажа — Доп. услуги",
+      fin_auto_template: "Расходы на авто РФ",
+      fin_oper: "Оперрасходы",
+      boss_buy: "Закупка",
+      boss_invest_in: "Инвестиции — ввод",
+      boss_invest_out: "Инвестиции — вывод",
+    };
+
+    subtitleEl.textContent =
+      "Форма: " + (FORM_TITLES[formType] || formType) +
+      (categoryFromUrl ? " | Категория: " + categoryFromUrl : "");
+
+    // ---------- БАЗОВЫЕ КОНСТРУКТОРЫ ПОЛЕЙ ----------
+
+    function createInput(id, labelText, placeholder = "", readonly = false, value = "", type = "text", maxLength = null) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "field";
+
+      const label = document.createElement("label");
+      label.htmlFor = id;
+      label.textContent = labelText;
+
+      const input = document.createElement("input");
+      input.id = id;
+      input.placeholder = placeholder;
+      input.type = type;
+      if (value) input.value = value;
+      if (readonly) {
+        input.readOnly = true;
+        input.classList.add("readonly");
+      }
+      if (maxLength) {
+        input.maxLength = maxLength;
+      }
+
+      wrapper.appendChild(label);
+      wrapper.appendChild(input);
+      return wrapper;
+    }
+
+    function createTextarea(id, labelText, placeholder = "") {
+      const wrapper = document.createElement("div");
+      wrapper.className = "field";
+
+      const label = document.createElement("label");
+      label.htmlFor = id;
+      label.textContent = labelText;
+
+      const textarea = document.createElement("textarea");
+      textarea.id = id;
+      textarea.placeholder = placeholder;
+
+      wrapper.appendChild(label);
+      wrapper.appendChild(textarea);
+      return wrapper;
+    }
+
+    function createSelect(id, labelText, options, placeholder = "Выберите...") {
+      const wrapper = document.createElement("div");
+      wrapper.className = "field";
+
+      const label = document.createElement("label");
+      label.htmlFor = id;
+      label.textContent = labelText;
+
+      const select = document.createElement("select");
+      select.id = id;
+
+      const optPlaceholder = document.createElement("option");
+      optPlaceholder.value = "";
+      optPlaceholder.textContent = placeholder;
+      optPlaceholder.disabled = true;
+      optPlaceholder.selected = true;
+      select.appendChild(optPlaceholder);
+
+      options.forEach((opt) => {
+        const o = document.createElement("option");
+        o.value = opt;
+        o.textContent = opt;
+        select.appendChild(o);
+      });
+
+      wrapper.appendChild(label);
+      wrapper.appendChild(select);
+      return wrapper;
+    }
+
+    function createAutocompleteInput(id, labelText, placeholder = "", options = [], maxLength = null) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "field";
+
+      const label = document.createElement("label");
+      label.htmlFor = id;
+      label.textContent = labelText;
+
+      const input = document.createElement("input");
+      input.id = id;
+      input.placeholder = placeholder;
+      if (maxLength) input.maxLength = maxLength;
+
+      if (options && options.length) {
+        const datalistId = id + "_list";
+        input.setAttribute("list", datalistId);
+
+        let datalist = document.getElementById(datalistId);
+        if (!datalist) {
+          datalist = document.createElement("datalist");
+          datalist.id = datalistId;
+          document.body.appendChild(datalist);
+        }
+
+        function updateOptions(value) {
+          const v = (value || "").toLowerCase();
+          datalist.innerHTML = "";
+          options.forEach((opt) => {
+            if (!v || opt.toLowerCase().includes(v)) {
+              const o = document.createElement("option");
+              o.value = opt;
+              datalist.appendChild(o);
+            }
+          });
+        }
+
+        updateOptions("");
+
+        input.addEventListener("input", () => {
+          updateOptions(input.value.trim());
+        });
+      }
+
+      wrapper.appendChild(label);
+      wrapper.appendChild(input);
+      return wrapper;
+    }
+
+    function todayISO() {
+      return new Date().toISOString().slice(0, 10);
+    }
+
+    function formatDateToRu(value) {
+      if (!value) return "";
+      const parts = value.split("-");
+      if (parts.length === 3) {
+        const [y, m, d] = parts;
+        return `${d}.${m}.${y}`;
+      }
+      return value;
+    }
+
+    // ---------- ОТРИСОВКА ФОРМЫ ----------
+
+    let extraExpenseIndex = 0;
+
+    function addExtraExpenseRow() {
+      const container = document.getElementById("extraExpensesContainer");
+      if (!container) return;
+
+      extraExpenseIndex += 1;
+      const row = document.createElement("div");
+      row.className = "field extra-expense-row";
+
+      const nameLabel = document.createElement("label");
+      nameLabel.textContent = `Доп. расход ${extraExpenseIndex} — название`;
+
+      const nameInput = document.createElement("input");
+      nameInput.placeholder = "Например, шиномонтаж";
+      nameInput.classList.add("extra-expense-name");
+
+      const sumLabel = document.createElement("label");
+      sumLabel.textContent = `Доп. расход ${extraExpenseIndex} — сумма`;
+
+      const sumInput = document.createElement("input");
+      sumInput.placeholder = "Сумма, ₽";
+      sumInput.classList.add("extra-expense-sum");
+
+      row.appendChild(nameLabel);
+      row.appendChild(nameInput);
+      row.appendChild(sumLabel);
+      row.appendChild(sumInput);
+
+      container.appendChild(row);
+    }
+
+    function renderForm() {
+      formCard.innerHTML = "";
+      extraExpenseIndex = 0;
+
+      // --------- МЕНЕДЖЕР: СТОК ---------
+      if (formType === "mgr_stock") {
+        formCard.appendChild(
+          createSelect("dealTypeInput", "Тип сделки", ["Склад", "Поставка"], "Выберите тип сделки")
+        );
+
+        if (investors.length) {
+          formCard.appendChild(
+            createAutocompleteInput(
+              "ownerInput",
+              "Собственник",
+              "Начните вводить собственника",
+              investors
+            )
+          );
+        } else {
+          formCard.appendChild(
+            createInput("ownerInput", "Собственник", "Собственник авто")
+          );
+        }
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "brandModelInput",
+            "Марка / Модель",
+            "Начните вводить марку или модель",
+            brands
+          )
+        );
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "vinInput",
+            "VIN (введите последние 4 символа, чтобы увидеть варианты)",
+            "Последние 4 символа или полный VIN",
+            vins,
+            17
+          )
+        );
+
+        formCard.appendChild(createInput("configInput", "Комплектация", "Например, Comfort"));
+        formCard.appendChild(createInput("bodyColorInput", "Цвет кузова", "Черный"));
+        formCard.appendChild(createInput("salonColorInput", "Цвет салона", "Черный"));
+        formCard.appendChild(createInput("priceInput", "Цена, ₽", "1500000"));
+        formCard.appendChild(
+          createInput("stockDateInput", "Дата", "", false, todayISO(), "date")
+        );
+
+        formCard.appendChild(
+          createSelect("payTypeInput", "Тип оплаты", ["Нал", "Безнал", "НДС"], "Выберите тип оплаты")
+        );
+        formCard.appendChild(
+          createInput("clientInput", "Клиент (Имя + телефон)", "Иван Иванов, +7...")
+        );
+
+      // --------- ПРОДАЖА: НДС + БРОКЕР ---------
+      } else if (formType === "sale_nds_broker") {
+        formCard.appendChild(createInput("managerInput", "Менеджер", "Имя менеджера"));
+        formCard.appendChild(
+          createInput("saleDateInput", "Дата продажи", "", false, todayISO(), "date")
+        );
+
+        if (investors.length) {
+          formCard.appendChild(
+            createAutocompleteInput(
+              "ownerInput",
+              "Собственник авто",
+              "Начните вводить собственника",
+              investors
+            )
+          );
+        } else {
+          formCard.appendChild(createInput("ownerInput", "Собственник авто", ""));
+        }
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "brandModelInput",
+            "Марка / Модель",
+            "",
+            brands
+          )
+        );
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "vinInput",
+            "VIN (введите последние 4 символа, чтобы увидеть варианты)",
+            "Последние 4 символа или полный VIN",
+            vins,
+            17
+          )
+        );
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "leadSourceInput",
+            "Источник лида",
+            "Начните вводить источник",
+            sources
+          )
+        );
+
+        formCard.appendChild(createInput("priceNdsInput", "Цена с НДС", ""));
+        formCard.appendChild(createInput("markupNdsInput", "Наценка НДС (% / руб)", ""));
+        formCard.appendChild(createInput("contractPriceInput", "Цена в договоре (с учётом комиссии брокера)", ""));
+        formCard.appendChild(createInput("brokerPriceInput", "Цена без комиссии брокера", ""));
+        formCard.appendChild(createInput("brokerExpenseInput", "Расход брокера (машина + НДС, кому, сумма)", ""));
+        formCard.appendChild(createInput("buyerInput", "Покупатель", ""));
+
+      // --------- ПРОДАЖА: НДС БЕЗ БРОКЕРА ---------
+      } else if (formType === "sale_nds_no_broker") {
+        formCard.appendChild(createInput("managerInput", "Менеджер", ""));
+        formCard.appendChild(
+          createInput("saleDateInput", "Дата продажи", "", false, todayISO(), "date")
+        );
+
+        if (investors.length) {
+          formCard.appendChild(
+            createAutocompleteInput(
+              "ownerInput",
+              "Собственник авто",
+              "Начните вводить собственника",
+              investors
+            )
+          );
+        } else {
+          formCard.appendChild(createInput("ownerInput", "Собственник авто", ""));
+        }
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "brandModelInput",
+            "Марка / Модель",
+            "",
+            brands
+          )
+        );
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "vinInput",
+            "VIN (введите последние 4 символа, чтобы увидеть варианты)",
+            "Последние 4 символа или полный VIN",
+            vins,
+            17
+          )
+        );
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "leadSourceInput",
+            "Источник лида",
+            "Начните вводить источник",
+            sources
+          )
+        );
+
+        formCard.appendChild(createInput("priceNdsInput", "Цена с НДС", ""));
+        formCard.appendChild(createInput("priceCashInput", "Цена за наличные", ""));
+        formCard.appendChild(createInput("markupNdsInput", "Наценка НДС (% / руб)", ""));
+        formCard.appendChild(createInput("buyerInput", "Покупатель", ""));
+
+      // --------- ПРОДАЖА: НАЛИЧНЫЕ ---------
+      } else if (formType === "sale_cash") {
+        formCard.appendChild(createInput("managerInput", "Менеджер", ""));
+        formCard.appendChild(
+          createInput("saleDateInput", "Дата продажи", "", false, todayISO(), "date")
+        );
+
+        if (investors.length) {
+          formCard.appendChild(
+            createAutocompleteInput(
+              "ownerInput",
+              "Собственник авто",
+              "Начните вводить собственника",
+              investors
+            )
+          );
+        } else {
+          formCard.appendChild(createInput("ownerInput", "Собственник авто", ""));
+        }
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "brandModelInput",
+            "Марка / Модель",
+            "",
+            brands
+          )
+        );
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "vinInput",
+            "VIN (введите последние 4 символа, чтобы увидеть варианты)",
+            "Последние 4 символа или полный VIN",
+            vins,
+            17
+          )
+        );
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "leadSourceInput",
+            "Источник лида",
+            "Начните вводить источник",
+            sources
+          )
+        );
+
+        formCard.appendChild(createInput("priceInput", "Цена продажи", ""));
+        formCard.appendChild(createInput("receiverInput", "Кому передали средства", ""));
+        formCard.appendChild(createInput("buyerInput", "Покупатель", ""));
+
+      // --------- ПРОДАЖА: НАЛИЧНЫЕ С КОМИССИЕЙ ---------
+      } else if (formType === "sale_cash_broker") {
+        formCard.appendChild(createInput("managerInput", "Менеджер", ""));
+        formCard.appendChild(
+          createInput("saleDateInput", "Дата продажи", "", false, todayISO(), "date")
+        );
+
+        if (investors.length) {
+          formCard.appendChild(
+            createAutocompleteInput(
+              "ownerInput",
+              "Собственник авто",
+              "Начните вводить собственника",
+              investors
+            )
+          );
+        } else {
+          formCard.appendChild(createInput("ownerInput", "Собственник авто", ""));
+        }
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "brandModelInput",
+            "Марка / Модель",
+            "",
+            brands
+          )
+        );
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "vinInput",
+            "VIN (введите последние 4 символа, чтобы увидеть варианты)",
+            "Последние 4 символа или полный VIN",
+            vins,
+            17
+          )
+        );
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "leadSourceInput",
+            "Источник лида",
+            "Начните вводить источник",
+            sources
+          )
+        );
+
+        formCard.appendChild(createInput("priceInput", "Цена продажи", ""));
+        formCard.appendChild(createInput("priceNoCommInput", "Цена без комиссии", ""));
+        formCard.appendChild(createInput("managerFeeInput", "Комиссия менеджера", ""));
+        formCard.appendChild(createInput("receiverInput", "Кому передали средства", ""));
+        formCard.appendChild(createInput("buyerInput", "Покупатель", ""));
+
+      // --------- ЗАДАТОК ---------
+      } else if (formType === "sale_deposit") {
+        formCard.appendChild(createInput("managerInput", "Менеджер", ""));
+        formCard.appendChild(
+          createInput("saleDateInput", "Дата", "", false, todayISO(), "date")
+        );
+
+        if (investors.length) {
+          formCard.appendChild(
+            createAutocompleteInput(
+              "ownerInput",
+              "Собственник авто",
+              "Начните вводить собственника",
+              investors
+            )
+          );
+        } else {
+          formCard.appendChild(createInput("ownerInput", "Собственник авто", ""));
+        }
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "brandModelInput",
+            "Марка / Модель",
+            "",
+            brands
+          )
+        );
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "vinInput",
+            "VIN (введите последние 4 символа, чтобы увидеть варианты)",
+            "Последние 4 символа или полный VIN",
+            vins,
+            17
+          )
+        );
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "leadSourceInput",
+            "Источник лида",
+            "Начните вводить источник",
+            sources
+          )
+        );
+
+        formCard.appendChild(createInput("depositSumInput", "Сумма задатка", ""));
+        formCard.appendChild(createInput("receiverInput", "Кому передана сумма", ""));
+        formCard.appendChild(createInput("priceInput", "Цена продажи", ""));
+        formCard.appendChild(createInput("buyerInput", "Покупатель", ""));
+
+      // --------- ДОП. УСЛУГИ ---------
+      } else if (formType === "sale_extra") {
+        formCard.appendChild(createInput("managerInput", "Менеджер", ""));
+        formCard.appendChild(
+          createInput("saleDateInput", "Дата", "", false, todayISO(), "date")
+        );
+
+        if (investors.length) {
+          formCard.appendChild(
+            createAutocompleteInput(
+              "ownerInput",
+              "Собственник авто",
+              "Начните вводить собственника",
+              investors
+            )
+          );
+        } else {
+          formCard.appendChild(createInput("ownerInput", "Собственник авто", ""));
+        }
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "brandModelInput",
+            "Марка / Модель",
+            "",
+            brands
+          )
+        );
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "vinInput",
+            "VIN (введите последние 4 символа, чтобы увидеть варианты)",
+            "Последние 4 символа или полный VIN",
+            vins,
+            17
+          )
+        );
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "leadSourceInput",
+            "Источник лида",
+            "Начните вводить источник",
+            sources
+          )
+        );
+
+        formCard.appendChild(createTextarea("extraDescInput", "Доп. услуги (описание)", ""));
+        formCard.appendChild(createInput("priceInput", "Цена продажи", ""));
+        formCard.appendChild(createInput("receiverInput", "Кому передали средства", ""));
+        formCard.appendChild(createInput("purchaserInput", "Кто выдал средства на закупку", ""));
+        formCard.appendChild(createInput("buyPriceInput", "Цена покупки", ""));
+        formCard.appendChild(createInput("profitInput", "Доход", ""));
+
+      // --------- РАСХОДЫ НА АВТО В РФ ---------
+      } else if (formType === "fin_auto_template") {
+        formCard.appendChild(
+          createAutocompleteInput(
+            "vinInput",
+            "VIN (введите последние 4 символа, чтобы увидеть варианты)",
+            "Последние 4 символа или полный VIN",
+            vins,
+            17
+          )
+        );
+        formCard.appendChild(
+          createAutocompleteInput(
+            "brandModelInput",
+            "Марка / Модель",
+            "",
+            brands
+          )
+        );
+        formCard.appendChild(createInput("evacuatorInput", "Эвакуатор", ""));
+        formCard.appendChild(createInput("labInput", "Лаборатория", ""));
+        formCard.appendChild(createInput("utilWriteoffInput", "Списание утильсбора", ""));
+        formCard.appendChild(createInput("utilInput", "Утильсбор", ""));
+        formCard.appendChild(createInput("preSaleInput", "Предпродажная подготовка", ""));
+        formCard.appendChild(createInput("marketingInput", "Маркетинг", ""));
+        formCard.appendChild(createInput("otherInput", "Прочие расходы", ""));
+
+        const extraContainer = document.createElement("div");
+        extraContainer.id = "extraExpensesContainer";
+        formCard.appendChild(extraContainer);
+
+        const addExtraBtn = document.createElement("button");
+        addExtraBtn.type = "button";
+        addExtraBtn.textContent = "Добавить расход";
+        addExtraBtn.className = "small-btn";
+        addExtraBtn.addEventListener("click", addExtraExpenseRow);
+        formCard.appendChild(addExtraBtn);
+
+        formCard.appendChild(createTextarea("commentInput", "Комментарий", ""));
+
+      // --------- ОПЕРРАСХОДЫ ---------
+      } else if (formType === "fin_oper") {
+        formCard.appendChild(
+          createInput(
+            "categoryInput",
+            "Категория",
+            "Например, Аренда",
+            false,
+            categoryFromUrl || ""
+          )
+        );
+        formCard.appendChild(
+          createInput("opDateInput", "Дата", "", false, todayISO(), "date")
+        );
+        formCard.appendChild(
+          createInput("amountInput", "Сумма, ₽", "")
+        );
+        formCard.appendChild(
+          createTextarea("commentInput", "Комментарий", "")
+        );
+
+      // --------- ЗАКУПКА ---------
+      } else if (formType === "boss_buy") {
+        formCard.appendChild(
+          createAutocompleteInput(
+            "vinInput",
+            "VIN (введите последние 4 символа, чтобы увидеть варианты)",
+            "Последние 4 символа или полный VIN",
+            vins,
+            17
+          )
+        );
+        formCard.appendChild(
+          createAutocompleteInput(
+            "brandModelInput",
+            "Марка / Модель",
+            "",
+            brands
+          )
+        );
+
+        formCard.appendChild(
+          createAutocompleteInput(
+            "currencyInput",
+            "Валюта",
+            "Например, юань",
+            currencies
+          )
+        );
+
+        formCard.appendChild(createInput("currencyAmountInput", "Сумма в валюте", ""));
+        formCard.appendChild(createInput("rateRubInput", "Курс к рублю", ""));
+        formCard.appendChild(createInput("sumRubInput", "Сумма в рублях (авто)", ""));
+        formCard.appendChild(
+          createInput("opDateInput", "Дата", "", false, todayISO(), "date")
+        );
+
+      // --------- ИНВЕСТОР: ВВОД/ВЫВОД ---------
+      } else if (formType === "boss_invest_in" || formType === "boss_invest_out") {
+        if (investors.length) {
+          formCard.appendChild(
+            createAutocompleteInput(
+              "investorInput",
+              "Инвестор",
+              "Начните вводить инвестора",
+              investors
+            )
+          );
+        } else {
+          formCard.appendChild(createInput("investorInput", "Инвестор", ""));
+        }
+        formCard.appendChild(createInput("sumInput", "Сумма", ""));
+        formCard.appendChild(
+          createInput("opDateInput", "Дата", "", false, todayISO(), "date")
+        );
+        formCard.appendChild(createTextarea("commentInput", "Комментарий", ""));
+
+      // --------- ФОЛЛБЭК ---------
+      } else {
+        formCard.appendChild(
+          createTextarea(
+            "rawInput",
+            "Данные",
+            "Форма не настроена, введите данные в свободной форме."
+          )
+        );
+      }
+
+      submitBtn.disabled = false;
+    }
+
+    renderForm();
+
+    // ---------- СБОР ДАННЫХ ДЛЯ ОТПРАВКИ ----------
+
+    function collectFormData() {
+      const payload = { formType: formType };
+
+      function getBrandModel() {
+        const el = document.getElementById("brandModelInput");
+        return el ? (el.value || "") : "";
+      }
+
+      function getRuDate(id) {
+        const el = document.getElementById(id);
+        if (!el) return "";
+        return formatDateToRu(el.value);
+      }
+
+      if (formType === "mgr_stock") {
+        payload.deal_type      = document.getElementById("dealTypeInput").value;
+        payload.owner          = document.getElementById("ownerInput").value;
+        payload.brand_model    = getBrandModel();
+        payload.vin            = document.getElementById("vinInput").value;
+        payload.complectation  = document.getElementById("configInput").value;
+        payload.body_color     = document.getElementById("bodyColorInput").value;
+        payload.salon_color    = document.getElementById("salonColorInput").value;
+        payload.price          = document.getElementById("priceInput").value;
+        payload.stock_date     = getRuDate("stockDateInput");
+        payload.payment_type   = document.getElementById("payTypeInput").value;
+        payload.client         = document.getElementById("clientInput").value;
+
+      } else if (formType === "sale_nds_broker") {
+        payload.manager        = document.getElementById("managerInput").value;
+        payload.sale_date      = getRuDate("saleDateInput");
+        payload.owner          = document.getElementById("ownerInput").value;
+        payload.brand_model    = getBrandModel();
+        payload.vin            = document.getElementById("vinInput").value;
+        payload.lead_source    = document.getElementById("leadSourceInput").value;
+        payload.price_nds      = document.getElementById("priceNdsInput").value;
+        payload.markup_nds     = document.getElementById("markupNdsInput").value;
+        payload.contract_price = document.getElementById("contractPriceInput").value;
+        payload.broker_price   = document.getElementById("brokerPriceInput").value;
+        payload.broker_expense = document.getElementById("brokerExpenseInput").value;
+        payload.buyer          = document.getElementById("buyerInput").value;
+
+      } else if (formType === "sale_nds_no_broker") {
+        payload.manager        = document.getElementById("managerInput").value;
+        payload.sale_date      = getRuDate("saleDateInput");
+        payload.owner          = document.getElementById("ownerInput").value;
+        payload.brand_model    = getBrandModel();
+        payload.vin            = document.getElementById("vinInput").value;
+        payload.lead_source    = document.getElementById("leadSourceInput").value;
+        payload.price_nds      = document.getElementById("priceNdsInput").value;
+        payload.price_cash     = document.getElementById("priceCashInput").value;
+        payload.markup_nds     = document.getElementById("markupNdsInput").value;
+        payload.buyer          = document.getElementById("buyerInput").value;
+
+      } else if (formType === "sale_cash") {
+        payload.manager        = document.getElementById("managerInput").value;
+        payload.sale_date      = getRuDate("saleDateInput");
+        payload.owner          = document.getElementById("ownerInput").value;
+        payload.brand_model    = getBrandModel();
+        payload.vin            = document.getElementById("vinInput").value;
+        payload.lead_source    = document.getElementById("leadSourceInput").value;
+        payload.price          = document.getElementById("priceInput").value;
+        payload.receiver       = document.getElementById("receiverInput").value;
+        payload.buyer          = document.getElementById("buyerInput").value;
+
+      } else if (formType === "sale_cash_broker") {
+        payload.manager             = document.getElementById("managerInput").value;
+        payload.sale_date           = getRuDate("saleDateInput");
+        payload.owner               = document.getElementById("ownerInput").value;
+        payload.brand_model         = getBrandModel();
+        payload.vin                 = document.getElementById("vinInput").value;
+        payload.lead_source         = document.getElementById("leadSourceInput").value;
+        payload.price               = document.getElementById("priceInput").value;
+        payload.price_no_commission = document.getElementById("priceNoCommInput").value;
+        payload.manager_fee         = document.getElementById("managerFeeInput").value;
+        payload.receiver            = document.getElementById("receiverInput").value;
+        payload.buyer               = document.getElementById("buyerInput").value;
+
+      } else if (formType === "sale_deposit") {
+        payload.manager        = document.getElementById("managerInput").value;
+        payload.sale_date      = getRuDate("saleDateInput");
+        payload.owner          = document.getElementById("ownerInput").value;
+        payload.brand_model    = getBrandModel();
+        payload.vin            = document.getElementById("vinInput").value;
+        payload.lead_source    = document.getElementById("leadSourceInput").value;
+        payload.deposit_sum    = document.getElementById("depositSumInput").value;
+        payload.receiver       = document.getElementById("receiverInput").value;
+        payload.price          = document.getElementById("priceInput").value;
+        payload.buyer          = document.getElementById("buyerInput").value;
+
+      } else if (formType === "sale_extra") {
+        payload.manager        = document.getElementById("managerInput").value;
+        payload.sale_date      = getRuDate("saleDateInput");
+        payload.owner          = document.getElementById("ownerInput").value;
+        payload.brand_model    = getBrandModel();
+        payload.vin            = document.getElementById("vinInput").value;
+        payload.lead_source    = document.getElementById("leadSourceInput").value;
+        payload.extra_desc     = document.getElementById("extraDescInput").value;
+        payload.price          = document.getElementById("priceInput").value;
+        payload.receiver       = document.getElementById("receiverInput").value;
+        payload.purchaser      = document.getElementById("purchaserInput").value;
+        payload.buy_price      = document.getElementById("buyPriceInput").value;
+        payload.profit         = document.getElementById("profitInput").value;
+
+      } else if (formType === "fin_auto_template") {
+        payload.vin            = document.getElementById("vinInput").value;
+        payload.brand_model    = getBrandModel();
+        payload.evacuator      = document.getElementById("evacuatorInput").value;
+        payload.lab            = document.getElementById("labInput").value;
+        payload.util_writeoff  = document.getElementById("utilWriteoffInput").value;
+        payload.util           = document.getElementById("utilInput").value;
+        payload.pre_sale       = document.getElementById("preSaleInput").value;
+        payload.marketing      = document.getElementById("marketingInput").value;
+        payload.other          = document.getElementById("otherInput").value;
+
+        const extraRows = document.querySelectorAll(".extra-expense-row");
+        const extras = [];
+        extraRows.forEach((row) => {
+          const nameEl = row.querySelector(".extra-expense-name");
+          const sumEl = row.querySelector(".extra-expense-sum");
+          const name = nameEl ? nameEl.value.trim() : "";
+          const sum = sumEl ? sumEl.value.trim() : "";
+          if (name || sum) {
+            extras.push({ name, sum });
+          }
+        });
+        if (extras.length) {
+          payload.extra_expenses = extras;
+        }
+
+        payload.comment        = document.getElementById("commentInput").value;
+
+      } else if (formType === "fin_oper") {
+        payload.category       = document.getElementById("categoryInput").value;
+        payload.op_date        = getRuDate("opDateInput");
+        payload.amount         = document.getElementById("amountInput").value;
+        payload.comment        = document.getElementById("commentInput").value;
+
+      } else if (formType === "boss_buy") {
+        payload.vin             = document.getElementById("vinInput").value;
+        payload.brand_model     = getBrandModel();
+        payload.currency        = document.getElementById("currencyInput").value;
+        payload.currency_amount = document.getElementById("currencyAmountInput").value;
+        payload.rate_rub        = document.getElementById("rateRubInput").value;
+        payload.sum_rub         = document.getElementById("sumRubInput").value;
+        payload.op_date         = getRuDate("opDateInput");
+
+      } else if (formType === "boss_invest_in" || formType === "boss_invest_out") {
+        payload.investor       = document.getElementById("investorInput").value;
+        payload.sum            = document.getElementById("sumInput").value;
+        payload.op_date        = getRuDate("opDateInput");
+        payload.comment        = document.getElementById("commentInput").value;
+
+      } else {
+        const el = document.getElementById("rawInput");
+        payload.raw = el ? el.value : "";
+      }
+
+      return payload;
+    }
+
+    // ---------- ИНТЕГРАЦИЯ С TELEGRAM ----------
+
+    const tg = window.Telegram && window.Telegram.WebApp
+      ? window.Telegram.WebApp
+      : null;
+
+    if (tg && tg.ready) {
+      try {
+        tg.ready();
+        console.log("[WEBAPP] tg.ready() OK");
+      } catch (e) {
+        console.log("[WEBAPP] tg.ready() error", e);
+      }
+    }
+
+    submitBtn.addEventListener("click", () => {
+      if (!tg) {
+        alert("Страница не открыта через Telegram-бота. Открой форму по кнопке в чате бота.");
+        return;
+      }
+
+      const payload = collectFormData();
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Отправка...";
+
+      try {
+        tg.sendData(JSON.stringify(payload));
+        console.log("[WEBAPP] sendData отправлен", payload);
+        setTimeout(() => {
+          try {
+            tg.close();
+          } catch (e) {
+            console.log("Ошибка при закрытии WebApp", e);
+          }
+        }, 400);
+      } catch (e) {
+        console.log("Ошибка при отправке в бота", e);
+        alert("Не удалось отправить данные в бота. Попробуйте ещё раз.");
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Отправить в бота";
+      }
+    });
+  </script>
+</body>
+</html>
