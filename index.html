@@ -722,33 +722,41 @@
         payload.profit         = document.getElementById("profitInput").value;
 
       } else if (formType === "fin_auto_template") {
-        payload.vin            = document.getElementById("vinInput").value;
-        payload.brand_model    = getBrandModel();
-        payload.fa_date        = getRuDate("faDateInput");
-        payload.evacuator      = document.getElementById("evacuatorInput").value;
-        payload.lab            = document.getElementById("labInput").value;
-        payload.util_writeoff  = document.getElementById("utilWriteoffInput").value;
-        payload.util           = document.getElementById("utilInput").value;
-        payload.pre_sale       = document.getElementById("preSaleInput").value;
-        payload.marketing      = document.getElementById("marketingInput").value;
-        payload.other          = document.getElementById("otherInput").value;
+  payload.vin         = document.getElementById("vinInput").value;
+  payload.brand_model = getBrandModel();
 
-        const extraRows = document.querySelectorAll(".extra-expense-row");
-        const extras = [];
-        extraRows.forEach((row) => {
-          const nameEl = row.querySelector(".extra-expense-name");
-          const sumEl = row.querySelector(".extra-expense-sum");
-          const name = nameEl ? nameEl.value.trim() : "";
-          const sum = sumEl ? sumEl.value.trim() : "";
-          if (name || sum) {
-            extras.push({ name, sum });
-          }
-        });
-        if (extras.length) {
-          payload.extra_expenses = extras;
-        }
+  payload.op_date     = getRuDate("autoDateInput");
 
-        payload.comment        = document.getElementById("commentInput").value;
+  payload.evacuator   = document.getElementById("evacuatorInput").value;
+  payload.lab         = document.getElementById("labInput").value;
+
+  const utilWriteoffEl = document.getElementById("utilWriteoffInput");
+  if (utilWriteoffEl) {
+    payload.util_writeoff = utilWriteoffEl.value;
+  }
+
+  payload.util        = document.getElementById("utilInput").value;
+  payload.pre_sale    = document.getElementById("preSaleInput").value;
+  payload.marketing   = document.getElementById("marketingInput").value;
+  payload.other       = document.getElementById("otherInput").value;
+
+  const extraRows = document.querySelectorAll(".extra-expense-row");
+  const extras = [];
+  extraRows.forEach((row) => {
+    const nameEl = row.querySelector(".extra-expense-name");
+    const sumEl  = row.querySelector(".extra-expense-sum");
+    const name   = nameEl ? nameEl.value.trim() : "";
+    const sum    = sumEl ? sumEl.value.trim() : "";
+    if (name || sum) {
+      extras.push({ name, sum });
+    }
+  });
+  if (extras.length) {
+    payload.extra_expenses = extras;
+  }
+
+  payload.comment     = document.getElementById("commentInput").value;
+
 
       } else if (formType === "fin_oper") {
         payload.category       = document.getElementById("categoryInput").value;
@@ -757,13 +765,19 @@
         payload.comment        = document.getElementById("commentInput").value;
 
       } else if (formType === "boss_buy") {
-        payload.vin            = document.getElementById("vinInput").value;
-        payload.brand_model    = getBrandModel();
-        payload.currency       = document.getElementById("currencyInput").value;
-        payload.amount_currency= document.getElementById("amountCurrencyInput").value;
-        payload.usd_rate       = document.getElementById("rateInput").value;
-        payload.amount_rub     = document.getElementById("amountRubInput").value;
-        payload.op_date        = getRuDate("opDateInput");
+  payload.vin            = document.getElementById("vinInput").value;
+  payload.brand_model    = getBrandModel();
+        
+  payload.currency       = document.getElementById("currencyInput").value;
+
+  payload.amount_foreign = document.getElementById("amountForeignInput").value;
+
+  payload.rate_to_rub    = document.getElementById("rateToRubInput").value;
+        
+  payload.amount_rub     = document.getElementById("amountRubInput").value;
+
+  payload.op_date        = getRuDate("opDateInput");
+
 
       } else if (formType === "boss_invest_in" || formType === "boss_invest_out") {
         payload.investor       = document.getElementById("investorInput").value;
@@ -827,3 +841,4 @@
   </script>
 </body>
 </html>
+
