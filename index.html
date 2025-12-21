@@ -4,7 +4,11 @@
   <meta charset="UTF-8" />
   <title>Автолинк WebApp</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="preconnect" href="https://telegram.org">
+  <link rel="preconnect" href="https://script.google.com">
+  <link rel="dns-prefetch" href="https://telegram.org">
+  <link rel="dns-prefetch" href="https://script.google.com">
+<script defer src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -131,9 +135,17 @@
 
   <script>
     const urlParams = new URLSearchParams(window.location.search);
+    // --- Service Worker cache (ускоряет повторные открытия WebApp) ---
+    try {
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("./sw.js?v=2025-12-21-1").catch(()=>{});
+      }
+    } catch(e) {}
+
     const formType = urlParams.get("type") || "unknown";
 
     const categoryFromUrl = urlParams.get("category") || "";
+    
     const brandsParam = urlParams.get("brands") || "";
     const investorsParam = urlParams.get("investors") || "";
     const sourcesParam = urlParams.get("sources") || "";
@@ -141,12 +153,62 @@
     const currenciesParam = urlParams.get("currencies") || "";
     const bossVinsParam = urlParams.get("bossvins") || "";
 
+    // Небольшие списки — разбираем сразу
     const brands = brandsParam ? brandsParam.split("|") : [];
     const investors = investorsParam ? investorsParam.split("|") : [];
     const sources = sourcesParam ? sourcesParam.split("|") : [];
-    const vins = vinsParam ? vinsParam.split("|") : [];
     const currencies = currenciesParam ? currenciesParam.split("|") : [];
     const bossVins = bossVinsParam ? bossVinsParam.split("|") : [];
+
+    // VIN-список может быть большим → разбираем ЛЕНИВО, чтобы WebApp открывался быстрее
+    const LS_GLOBAL = { VINS: "ref_vins_cache_v1" };
+    let vins = [];               // будет заполнен из URL в idle
+    let vinsWarmStarted = false; // чтобы не запускать дважды
+    let allVinsCache = null;
+
+    function lsReadArr(key) {
+      try {
+        const raw = localStorage.getItem(key);
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr : [];
+      } catch (e) { return []; }
+    }
+    function lsWriteArr(key, arr, limit = 2000) {
+      try {
+        const out = (arr || []).slice(0, limit);
+        localStorage.setItem(key, JSON.stringify(out));
+      } catch (e) {}
+    }
+
+    function normalizeVinQuick(v) { return String(v || "").trim().toUpperCase(); }
+
+    function scheduleWarmVinsFromUrl() {
+      if (vinsWarmStarted) return;
+      if (!vinsParam || vinsParam.length < 4) return;
+      vinsWarmStarted = true;
+
+      const run = () => {
+        try {
+          // split может быть тяжёлым → делаем после первого рендера
+          vins = vinsParam.split("|").map(normalizeVinQuick).filter(Boolean);
+          // сохраним для следующих открытий (чтобы даже без vinsParam подсказки были)
+          const merged = mergeUnique(vins, lsReadArr(LS_GLOBAL.VINS));
+          lsWriteArr(LS_GLOBAL.VINS, merged, 2500);
+          allVinsCache = null; // invalidate
+          // если input VIN уже есть — обновим подсказки
+          updateDatalist("vinInput_list", getAllVins());
+        } catch (e) {
+          console.warn("warm vins failed:", e);
+        }
+      };
+
+      if ("requestIdleCallback" in window) {
+        requestIdleCallback(run, { timeout: 1200 });
+      } else {
+        setTimeout(run, 200);
+      }
+    }
+
 
     const subtitleEl = document.getElementById("subtitle");
     const formCard = document.getElementById("formCard");
@@ -199,7 +261,7 @@
     // 2) Вставь ссылку вида https://script.google.com/macros/s/XXXX/exec в LOOKUP_API_URL
     // Если LOOKUP_API_URL пустой — всё работает как раньше, просто без автоподтягивания.
 
-    const LOOKUP_API_URL = "https://script.google.com/macros/s/AKfycbzuBwFkGUiXnJcwUeTSt5jP8Y1BdE8PD0MQO_0SH6hr74O2htidfhD3Oop5zZ80G-GlDw/exec";   // <-- вставь сюда URL /exec
+    const LOOKUP_API_URL = "https://script.google.com/macros/s/AKfycbyCSjWIYwn58Z2843yPmTZvM8vLtpzdmG_AOCa3VWb2_JnFgCOgc4KklrozyePbiz5G7g/exec;   // <-- вставь сюда URL /exec
     const LOOKUP_API_TOKEN = ""; // <-- опционально (должен совпадать с TOKEN в Apps Script)
 
     const remoteCache = { vins: [], suppliers: [], places: [], brand_models: [] };
@@ -213,7 +275,7 @@
       const dl = document.getElementById(dlId);
       if (!dl) return;
       dl.innerHTML = "";
-      (options || []).slice(0, 500).forEach((opt) => {
+      (options || []).slice(0, 200).forEach((opt) => {
         const o = document.createElement("option");
         o.value = opt;
         dl.appendChild(o);
@@ -287,6 +349,7 @@
           remoteCache.places = res.lists.places || [];
           remoteCache.brand_models = res.lists.brand_models || [];
           remoteListsLoaded = true;
+          try { allVinsCache = null; } catch(e) {}
 
           // Сохраним в localStorage, чтобы подсказки работали быстрее
           if (remoteCache.vins.length) lsWrite(LS_KEYS.VINS, mergeUnique(remoteCache.vins, lsRead(LS_KEYS.VINS)), 800);
@@ -418,7 +481,21 @@
     }
 
     function getAllVins() {
-      return mergeUnique(bossVins || [], vins || [], (remoteCache.vins || []), lsRead(LS_KEYS.VINS)).map(v => String(v).trim().toUpperCase());
+      // Кэшируем, чтобы не пересобирать массив на каждый keypress
+      if (allVinsCache) return allVinsCache;
+
+      const globalCached = lsReadArr(LS_GLOBAL.VINS).map(normalizeVinQuick).filter(Boolean);
+      const bossCached = (typeof LS_KEYS !== "undefined") ? (lsRead(LS_KEYS.VINS) || []).map(normalizeVinQuick).filter(Boolean) : [];
+      const remoteV = (typeof remoteCache !== "undefined" && remoteCache && remoteCache.vins) ? remoteCache.vins.map(normalizeVinQuick).filter(Boolean) : [];
+
+      // vins (из URL) появится позже — но если уже прогрето, тоже попадёт
+      const urlV = (vins || []).map(normalizeVinQuick).filter(Boolean);
+
+      allVinsCache = mergeUnique((bossVins || []).map(normalizeVinQuick), globalCached, bossCached, remoteV, urlV);
+
+      // фоном распарсим большой параметр vins=...
+      scheduleWarmVinsFromUrl();
+      return allVinsCache;
     }
     function warmLocalDatalists() {
       // мгновенно подставляем подсказки из localStorage (без сети)
@@ -1154,14 +1231,19 @@
     // Подсказки из localStorage (чтобы открывалось быстрее)
     warmLocalDatalists();
 
+    // Фоном распарсим vins=... из URL (если он большой)
+    scheduleWarmVinsFromUrl();
+
     // Подсказки VIN во всех формах (работают из localStorage/lookup)
     setupVinAutocompleteSmart("vinInput", getAllVins);
 
-    // Подгрузим списки/автоподтягивание по VIN в фоне (не тормозит открытие)
-    if (window.requestIdleCallback) {
-      requestIdleCallback(() => remoteListsLoad(false), { timeout: 2000 });
-    } else {
-      setTimeout(() => remoteListsLoad(false), 200);
+    // Подгрузим списки/автоподтягивание по VIN (ТОЛЬКО для закупки руководителя) в фоне
+    if (formType === "boss_buy") {
+      if (window.requestIdleCallback) {
+        requestIdleCallback(() => remoteListsLoad(false), { timeout: 2000 });
+      } else {
+        setTimeout(() => remoteListsLoad(false), 200);
+      }
     }
 
 // ===================== COLLECT DATA =====================
