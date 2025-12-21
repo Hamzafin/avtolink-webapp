@@ -261,8 +261,9 @@
     // 2) Вставь ссылку вида https://script.google.com/macros/s/XXXX/exec в LOOKUP_API_URL
     // Если LOOKUP_API_URL пустой — всё работает как раньше, просто без автоподтягивания.
 
-    const LOOKUP_API_URL = "https://script.google.com/macros/s/AKfycbyCSjWIYwn58Z2843yPmTZvM8vLtpzdmG_AOCa3VWb2_JnFgCOgc4KklrozyePbiz5G7g/exec;   // <-- вставь сюда URL /exec
-    const LOOKUP_API_TOKEN = ""; // <-- опционально (должен совпадать с TOKEN в Apps Script)
+   const LOOKUP_API_URL = "https://script.google.com/macros/s/AKfycbyCSjWIYwn58Z2843yPmTZvM8vLtpzdmG_AOCa3VWb2_JnFgCOgc4KklrozyePbiz5G7g/exec";
+   const LOOKUP_API_TOKEN = "";
+
 
     const remoteCache = { vins: [], suppliers: [], places: [], brand_models: [] };
     let remoteListsLoaded = false;
@@ -1467,4 +1468,5 @@
   </script>
 </body>
 </html>
+
 
