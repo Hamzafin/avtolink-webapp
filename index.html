@@ -193,6 +193,174 @@
       PLACES: "boss_buy_places",
       BRAND_MODELS: "boss_buy_brand_models",
     };
+    // ===================== OPTIONAL REMOTE LOOKUP (Google Apps Script JSONP) =====================
+    // Чтобы подтягивать данные по VIN из Google Sheets:
+    // 1) Разверни Apps Script Web App (см. Code.gs из моего сообщения)
+    // 2) Вставь ссылку вида https://script.google.com/macros/s/XXXX/exec в LOOKUP_API_URL
+    // Если LOOKUP_API_URL пустой — всё работает как раньше, просто без автоподтягивания.
+
+    const LOOKUP_API_URL = "https://script.google.com/macros/s/AKfycbzuBwFkGUiXnJcwUeTSt5jP8Y1BdE8PD0MQO_0SH6hr74O2htidfhD3Oop5zZ80G-GlDw/exec";   // <-- вставь сюда URL /exec
+    const LOOKUP_API_TOKEN = ""; // <-- опционально (должен совпадать с TOKEN в Apps Script)
+
+    const remoteCache = { vins: [], suppliers: [], places: [], brand_models: [] };
+    let remoteListsLoaded = false;
+
+    function canUseLookup() {
+      return typeof LOOKUP_API_URL === "string" && LOOKUP_API_URL.trim().startsWith("https://");
+    }
+
+    function updateDatalist(dlId, options) {
+      const dl = document.getElementById(dlId);
+      if (!dl) return;
+      dl.innerHTML = "";
+      (options || []).slice(0, 500).forEach((opt) => {
+        const o = document.createElement("option");
+        o.value = opt;
+        dl.appendChild(o);
+      });
+    }
+
+    function jsonpRequest(baseUrl, params, timeoutMs = 8000) {
+      return new Promise((resolve, reject) => {
+        const cb = "__cb_" + Math.random().toString(36).slice(2);
+        const q = new URLSearchParams(params || {});
+        q.set("callback", cb);
+        if (LOOKUP_API_TOKEN) q.set("token", LOOKUP_API_TOKEN);
+
+        const src = baseUrl + (baseUrl.includes("?") ? "&" : "?") + q.toString();
+        const script = document.createElement("script");
+        let done = false;
+
+        function cleanup() {
+          if (script && script.parentNode) script.parentNode.removeChild(script);
+          try { delete window[cb]; } catch (e) { window[cb] = undefined; }
+        }
+
+        const timer = setTimeout(() => {
+          if (done) return;
+          done = true;
+          cleanup();
+          reject(new Error("Lookup timeout"));
+        }, timeoutMs);
+
+        window[cb] = (data) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          cleanup();
+          resolve(data);
+        };
+
+        script.onerror = () => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          cleanup();
+          reject(new Error("Lookup request failed"));
+        };
+
+        script.src = src;
+        document.body.appendChild(script);
+      });
+    }
+
+    async function remoteListsLoad() {
+      if (!canUseLookup()) return;
+      try {
+        const res = await jsonpRequest(LOOKUP_API_URL, { action: "lists" });
+        if (res && res.ok && res.lists) {
+          remoteCache.vins = res.lists.vins || [];
+          remoteCache.suppliers = res.lists.suppliers || [];
+          remoteCache.places = res.lists.places || [];
+          remoteCache.brand_models = res.lists.brand_models || [];
+          remoteListsLoaded = true;
+
+          // Сохраним в localStorage, чтобы подсказки работали быстрее
+          if (remoteCache.vins.length) lsWrite(LS_KEYS.VINS, mergeUnique(remoteCache.vins, lsRead(LS_KEYS.VINS)), 800);
+          if (remoteCache.suppliers.length) lsWrite(LS_KEYS.SUPPLIERS, mergeUnique(remoteCache.suppliers, lsRead(LS_KEYS.SUPPLIERS)), 400);
+          if (remoteCache.places.length) lsWrite(LS_KEYS.PLACES, mergeUnique(remoteCache.places, lsRead(LS_KEYS.PLACES)), 400);
+          if (remoteCache.brand_models.length) lsWrite(LS_KEYS.BRAND_MODELS, mergeUnique(remoteCache.brand_models, lsRead(LS_KEYS.BRAND_MODELS)), 600);
+
+          // Обновим datalist'ы, если форма уже отрендерилась
+          updateDatalist("vinInput_list", getAllVins());
+          updateDatalist("supplierInput_list", mergeUnique(remoteCache.suppliers, lsRead(LS_KEYS.SUPPLIERS)));
+          updateDatalist("placeInput_list", mergeUnique(remoteCache.places, lsRead(LS_KEYS.PLACES)));
+          updateDatalist("brandModelInput_list", mergeUnique(remoteCache.brand_models, lsRead(LS_KEYS.BRAND_MODELS)));
+        }
+      } catch (e) {
+        console.warn("remoteListsLoad failed:", e);
+      }
+    }
+
+    function normalizeVin(v) {
+      return String(v || "").trim().toUpperCase();
+    }
+
+    function getVinCandidates() {
+      return mergeUnique(remoteCache.vins || [], getAllVins());
+    }
+
+    function resolveFullVin(vinRaw) {
+      const v = normalizeVin(vinRaw);
+      if (!v) return "";
+      if (v.length === 17) return v;
+
+      const cand = getVinCandidates();
+      if (v.length >= 4 && v.length < 17) {
+        const matches = cand.filter(x => normalizeVin(x).endsWith(v));
+        if (matches.length === 1) return matches[0];
+        return ""; // неоднозначно — пусть выберет из списка
+      }
+      return v;
+    }
+
+    async function lookupByVin(vinRaw) {
+      if (!canUseLookup()) return null;
+      const fullVin = resolveFullVin(vinRaw);
+      if (!fullVin) return null;
+
+      try {
+        const res = await jsonpRequest(LOOKUP_API_URL, { action: "lookup", vin: fullVin });
+        if (res && res.ok && res.found && res.data) return res.data;
+      } catch (e) {
+        console.warn("lookupByVin failed:", e);
+      }
+      return null;
+    }
+
+    function setValueIfExists(id, val) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (val === null || typeof val === "undefined") return;
+      el.value = String(val);
+    }
+
+    function prefillBossBuyFields(data) {
+      if (!data) return;
+      if (data.vin) setValueIfExists("vinInput", data.vin);
+
+      setValueIfExists("purchaseDateInput", data.purchase_date || "");
+      setValueIfExists("supplierInput", data.supplier || "");
+      setValueIfExists("placeInput", data.purchase_place || "");
+      setValueIfExists("brandModelInput", data.brand_model || "");
+      setValueIfExists("complectationInput", data.complectation || "");
+
+      if (document.getElementById("currencyInput")) setValueIfExists("currencyInput", data.currency || "");
+      setValueIfExists("amountCurrencyInput", data.amount_currency || "");
+      setValueIfExists("rateInput", data.rate_to_rub || "");
+
+      // опционально показать рассчитанную стоимость (если есть в таблице)
+      if (document.getElementById("amountRubInput")) {
+        setValueIfExists("amountRubInput", data.cost_rub || "");
+      }
+    }
+
+    async function prefillBossBuyByVin(vinRaw) {
+      const data = await lookupByVin(vinRaw);
+      if (data) prefillBossBuyFields(data);
+    }
+
+
 
     function lsRead(key) {
       try {
@@ -234,7 +402,7 @@
     }
 
     function getAllVins() {
-      return mergeUnique(bossVins || [], vins || [], lsRead(LS_KEYS.VINS)).map(v => String(v).trim().toUpperCase());
+      return mergeUnique(bossVins || [], vins || [], (remoteCache.vins || []), lsRead(LS_KEYS.VINS)).map(v => String(v).trim().toUpperCase());
     }
 
     function cacheBossBuyPayload(payload) {
@@ -708,7 +876,15 @@
       setMode("purchase");
       document.getElementById("modeBadge").textContent = "Режим: Новая закупка";
 
-      document.getElementById("vinInput").addEventListener("input", (e) => autoDetectModeByVin(e.target.value));
+      // VIN: если VIN уже есть в таблице — подтянем данные в поля (для удобства)
+      let vinPrefillTimer = null;
+      const vinEl = document.getElementById("vinInput");
+      vinEl.addEventListener("input", (e) => {
+        if (vinPrefillTimer) clearTimeout(vinPrefillTimer);
+        vinPrefillTimer = setTimeout(() => prefillBossBuyByVin(e.target.value), 450);
+      });
+      vinEl.addEventListener("change", (e) => prefillBossBuyByVin(e.target.value));
+      vinEl.addEventListener("blur", (e) => prefillBossBuyByVin(e.target.value));
       document.getElementById("modeSelect").addEventListener("change", (e) => setMode(e.target.value));
 
       ["currencyInput","amountCurrencyInput","rateInput"].forEach(id => {
@@ -920,6 +1096,9 @@
     }
 
     renderForm();
+
+    // Подгрузим списки и автоподтягивание по VIN (если настроен LOOKUP_API_URL)
+    remoteListsLoad();
 
     // ===================== COLLECT DATA =====================
 
