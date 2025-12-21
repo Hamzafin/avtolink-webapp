@@ -182,6 +182,8 @@
         const [y, m, d] = parts;
         return `${d}.${m}.${y}`;
       }
+      return value;
+    }
 
 
     // ---------- Local cache for dropdowns (VIN / supplier / place / brand_model) ----------
@@ -197,9 +199,7 @@
         const v = localStorage.getItem(key);
         const arr = v ? JSON.parse(v) : [];
         return Array.isArray(arr) ? arr.filter(Boolean) : [];
-      } catch (e) {
-        return [];
-      }
+      } catch (e) { return []; }
     }
 
     function lsWrite(key, arr, maxLen = 200) {
@@ -213,8 +213,6 @@
       const v = String(value || "").trim();
       if (!v) return;
       const arr = lsRead(key);
-
-      // remove duplicates ignoring case, then unshift
       const lo = v.toLowerCase();
       const filtered = arr.filter(x => String(x).trim().toLowerCase() !== lo);
       filtered.unshift(v);
@@ -236,7 +234,7 @@
     }
 
     function getAllVins() {
-      return mergeUnique(bossVins || [], vins || [], lsRead(LS_KEYS.VINS));
+      return mergeUnique(bossVins || [], vins || [], lsRead(LS_KEYS.VINS)).map(v => String(v).trim().toUpperCase());
     }
 
     function cacheBossBuyPayload(payload) {
@@ -245,12 +243,9 @@
       const vin = String(payload.vin || "").trim().toUpperCase();
       if (vin) lsAdd(LS_KEYS.VINS, vin);
 
-      // only for purchase mode these fields exist
       if (payload.brand_model) lsAdd(LS_KEYS.BRAND_MODELS, payload.brand_model);
       if (payload.supplier) lsAdd(LS_KEYS.SUPPLIERS, payload.supplier);
       if (payload.purchase_place) lsAdd(LS_KEYS.PLACES, payload.purchase_place);
-    }
-      return value;
     }
 
     function getRuDate(id) {
@@ -556,7 +551,7 @@
       purchaseBlock.appendChild(createInput("purchaseDateInput", "Дата закупки", "", todayISO(), "date"));
       purchaseBlock.appendChild(createAutocompleteInput("supplierInput", "Поставщик", "Например, дилер/компания", lsRead(LS_KEYS.SUPPLIERS)));
       purchaseBlock.appendChild(createAutocompleteInput("placeInput", "Место закупки", "Например, Япония / РФ / Китай", lsRead(LS_KEYS.PLACES)));
-      purchaseBlock.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "Например, BMW X5", mergeUnique(brands || [], lsRead(LS_KEYS.BRAND_MODELS))));
+      purchaseBlock.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "Например, BMW X5", mergeUnique(brands, lsRead(LS_KEYS.BRAND_MODELS))));
       purchaseBlock.appendChild(createInput("complectationInput", "Комплектация", "Например, M Sport"));
 
       purchaseBlock.appendChild(
@@ -1130,11 +1125,12 @@
 
       const payload = collectFormData();
 
+      try { cacheBossBuyPayload(payload); } catch(e) {}
+
       submitBtn.disabled = true;
       submitBtn.textContent = "Отправка...";
 
       try {
-        cacheBossBuyPayload(payload);
         tg.sendData(JSON.stringify(payload));
         setTimeout(() => { try { tg.close(); } catch(e) {} }, 400);
       } catch (e) {
