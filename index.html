@@ -353,7 +353,7 @@
           try { allVinsCache = null; } catch(e) {}
 
           // Сохраним в localStorage, чтобы подсказки работали быстрее
-          if (remoteCache.vins.length) lsWrite(LS_KEYS.VINS, mergeUnique(remoteCache.vins, lsRead(LS_KEYS.VINS)), 800);
+          if (remoteCache.vins.length) lsWrite(LS_KEYS.VINS, remoteCache.vins, 2500);
           if (remoteCache.suppliers.length) lsWrite(LS_KEYS.SUPPLIERS, mergeUnique(remoteCache.suppliers, lsRead(LS_KEYS.SUPPLIERS)), 400);
           if (remoteCache.places.length) lsWrite(LS_KEYS.PLACES, mergeUnique(remoteCache.places, lsRead(LS_KEYS.PLACES)), 400);
           if (remoteCache.brand_models.length) lsWrite(LS_KEYS.BRAND_MODELS, mergeUnique(remoteCache.brand_models, lsRead(LS_KEYS.BRAND_MODELS)), 600);
@@ -1468,5 +1468,6 @@
   </script>
 </body>
 </html>
+
 
 
