@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>Автолинк WebApp</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -264,8 +264,21 @@
       });
     }
 
-    async function remoteListsLoad() {
+    async function remoteListsLoad(force = false) {
       if (!canUseLookup()) return;
+
+      const TS_KEY = "boss_buy_lists_ts";
+      const TTL_MS = 12 * 60 * 60 * 1000; // 12 часов
+
+      if (!force) {
+        try {
+          const ts = parseInt(localStorage.getItem(TS_KEY) || "0", 10);
+          if (ts && (Date.now() - ts) < TTL_MS) {
+            return; // свежие списки уже закешированы
+          }
+        } catch (e) {}
+      }
+
       try {
         const res = await jsonpRequest(LOOKUP_API_URL, { action: "lists" });
         if (res && res.ok && res.lists) {
@@ -281,6 +294,8 @@
           if (remoteCache.places.length) lsWrite(LS_KEYS.PLACES, mergeUnique(remoteCache.places, lsRead(LS_KEYS.PLACES)), 400);
           if (remoteCache.brand_models.length) lsWrite(LS_KEYS.BRAND_MODELS, mergeUnique(remoteCache.brand_models, lsRead(LS_KEYS.BRAND_MODELS)), 600);
 
+          try { localStorage.setItem(TS_KEY, String(Date.now())); } catch(e) {}
+
           // Обновим datalist'ы, если форма уже отрендерилась
           updateDatalist("vinInput_list", getAllVins());
           updateDatalist("supplierInput_list", mergeUnique(remoteCache.suppliers, lsRead(LS_KEYS.SUPPLIERS)));
@@ -291,6 +306,7 @@
         console.warn("remoteListsLoad failed:", e);
       }
     }
+
 
     function normalizeVin(v) {
       return String(v || "").trim().toUpperCase();
@@ -404,6 +420,15 @@
     function getAllVins() {
       return mergeUnique(bossVins || [], vins || [], (remoteCache.vins || []), lsRead(LS_KEYS.VINS)).map(v => String(v).trim().toUpperCase());
     }
+    function warmLocalDatalists() {
+      // мгновенно подставляем подсказки из localStorage (без сети)
+      updateDatalist("vinInput_list", getAllVins());
+      updateDatalist("supplierInput_list", lsRead(LS_KEYS.SUPPLIERS));
+      updateDatalist("placeInput_list", lsRead(LS_KEYS.PLACES));
+      updateDatalist("brandModelInput_list", lsRead(LS_KEYS.BRAND_MODELS));
+    }
+
+
 
     function cacheBossBuyPayload(payload) {
       if (!payload || payload.formType !== "boss_buy") return;
@@ -549,7 +574,7 @@
           document.body.appendChild(dl);
         }
         dl.innerHTML = "";
-        options.slice(0, 500).forEach((opt) => {
+        options.slice(0, 300).forEach((opt) => {
           const o = document.createElement("option");
           o.value = opt;
           dl.appendChild(o);
@@ -564,34 +589,63 @@
     // ---------- VIN autocomplete (smart: last 4 + contains) ----------
     function setupVinAutocompleteSmart(inputId, allVins) {
       const input = document.getElementById(inputId);
-      if (!input || !allVins || !allVins.length) return;
+      if (!input) return;
+
+      // не навешиваем обработчики повторно
+      if (input.dataset && input.dataset.vinAuto === "1") return;
+      if (input.dataset) input.dataset.vinAuto = "1";
 
       const listId = inputId + "_list";
-      let dl = document.getElementById(listId);
-      if (!dl) {
-        dl = document.createElement("datalist");
-        dl.id = listId;
-        document.body.appendChild(dl);
+      let datalist = document.getElementById(listId);
+      if (!datalist) {
+        datalist = document.createElement("datalist");
+        datalist.id = listId;
+        document.body.appendChild(datalist);
+      }
+      input.setAttribute("list", listId);
+
+      function normalize(x) { return String(x || "").trim().toUpperCase(); }
+
+      function getSource() {
+        try {
+          const src = (typeof allVins === "function") ? allVins() : allVins;
+          return Array.isArray(src) ? src : [];
+        } catch (e) {
+          return Array.isArray(allVins) ? allVins : [];
+        }
       }
 
-      function fill(filter = "") {
-        dl.innerHTML = "";
-        let arr = allVins;
-        const f = (filter || "").trim().toLowerCase();
-        if (f && f.length >= 2) {
-          arr = allVins.filter(v => (v || "").toLowerCase().includes(f) || (v || "").toLowerCase().endsWith(f));
+      function fill(filter) {
+        const source = getSource();
+        const f = String(filter || "").trim().toLowerCase();
+
+        datalist.innerHTML = "";
+
+        // чтобы форма открывалась быстрее — не набиваем 100+ опций сразу
+        if (!f || f.length < 2) return;
+
+        const out = [];
+        for (let i = 0; i < source.length; i++) {
+          const v = normalize(source[i]);
+          if (!v) continue;
+          const lo = v.toLowerCase();
+          if (lo.includes(f) || lo.endsWith(f)) out.push(v);
+          if (out.length >= 80) break;
         }
-        arr.slice(0, 150).forEach(v => {
+
+        out.forEach(v => {
           const o = document.createElement("option");
           o.value = v;
-          dl.appendChild(o);
+          datalist.appendChild(o);
         });
       }
 
-      input.setAttribute("list", listId);
-      fill("");
+      // ленивое наполнение
+      input.addEventListener("focus", () => fill(input.value));
       input.addEventListener("input", () => fill(input.value));
     }
+
+
 
     // ---------- MULTI OWNER (Сток) ----------
     function createMultiOwnerInput(options = []) {
@@ -795,7 +849,7 @@
       formCard.appendChild(paymentBlock);
 
       // wiring
-      setupVinAutocompleteSmart("vinInput", allVinOptions);
+      setupVinAutocompleteSmart("vinInput", getAllVins);
 
       function setMode(mode) {
         const badge = document.getElementById("modeBadge");
@@ -1097,10 +1151,20 @@
 
     renderForm();
 
-    // Подгрузим списки и автоподтягивание по VIN (если настроен LOOKUP_API_URL)
-    remoteListsLoad();
+    // Подсказки из localStorage (чтобы открывалось быстрее)
+    warmLocalDatalists();
 
-    // ===================== COLLECT DATA =====================
+    // Подсказки VIN во всех формах (работают из localStorage/lookup)
+    setupVinAutocompleteSmart("vinInput", getAllVins);
+
+    // Подгрузим списки/автоподтягивание по VIN в фоне (не тормозит открытие)
+    if (window.requestIdleCallback) {
+      requestIdleCallback(() => remoteListsLoad(false), { timeout: 2000 });
+    } else {
+      setTimeout(() => remoteListsLoad(false), 200);
+    }
+
+// ===================== COLLECT DATA =====================
 
     function collectFormData() {
       const payload = { formType };
