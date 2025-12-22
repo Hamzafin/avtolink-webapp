@@ -1,5 +1,5 @@
 /* Telegram WebApp cache (GitHub Pages) */
-const CACHE_NAME = "avtolink-webapp-cache-v2"; // <-- поменял v1 -> v2
+const CACHE_NAME = "avtolink-webapp-cache-v3"; // <-- поменял v1 -> v2
 
 const APP_SHELL = [
   "./",
