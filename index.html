@@ -1463,9 +1463,13 @@ function updateDatalist(dlId, options) {
         submitBtn.textContent = "Отправить в бота";
       }
     });
+     if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./sw.js", { scope: "./" });
+    }
   </script>
 </body>
 </html>
+
 
 
 
