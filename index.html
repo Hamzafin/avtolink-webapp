@@ -130,6 +130,25 @@
   <button id="submitBtn" disabled>Отправить в бота</button>
 
   <script>
+    (() => {
+  const p = new URLSearchParams(location.search);
+  if (p.get("reset") === "1") {
+    [
+      "boss_buy_vins",
+      "boss_buy_vins_v2",
+      "boss_buy_lists_ts",
+      "boss_buy_lists_ts_v2",
+      "ref_vins_cache_v1",
+      "ref_vins_cache_v2",
+      "boss_buy_suppliers",
+      "boss_buy_places",
+      "boss_buy_brand_models",
+      "boss_buy_suppliers_v2",
+      "boss_buy_places_v2",
+      "boss_buy_brand_models_v2",
+    ].forEach(k => localStorage.removeItem(k));
+  }
+})();
     const urlParams = new URLSearchParams(window.location.search);
     const formType = urlParams.get("type") || "unknown";
 
@@ -1426,4 +1445,5 @@
   </script>
 </body>
 </html>
+
 
