@@ -230,16 +230,37 @@
       return typeof LOOKUP_API_URL === "string" && LOOKUP_API_URL.trim().startsWith("https://");
     }
 
-    function updateDatalist(dlId, options) {
-      const dl = document.getElementById(dlId);
-      if (!dl) return;
-      dl.innerHTML = "";
-      (options || []).slice(0, 500).forEach((opt) => {
-        const o = document.createElement("option");
-        o.value = opt;
-        dl.appendChild(o);
-      });
-    }
+    const BAD_HINTS = new Set([
+  "поставщик",
+  "место закупки",
+  "марка / модель",
+  "марка/модель",
+  "комплектация",
+  "дата закупки",
+  "валюта",
+  "сумма",
+  "курс",
+  "стоимость авто, руб.",
+  "оплата в валюте",
+  "оплата в рублях",
+  "vin",
+]);
+
+function updateDatalist(dlId, options) {
+  const dl = document.getElementById(dlId);
+  if (!dl) return;
+  dl.innerHTML = "";
+
+  (options || [])
+    .map(x => String(x || "").trim())
+    .filter(x => x && !BAD_HINTS.has(x.toLowerCase()))
+    .slice(0, 500)
+    .forEach(v => {
+      const o = document.createElement("option");
+      o.value = v;
+      dl.appendChild(o);
+    });
+}
 
     function jsonpRequest(baseUrl, params, timeoutMs = 8000) {
       return new Promise((resolve, reject) => {
@@ -1445,5 +1466,6 @@
   </script>
 </body>
 </html>
+
 
 
