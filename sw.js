@@ -1,12 +1,16 @@
 /* Telegram WebApp cache (GitHub Pages) */
-const CACHE_NAME = "avtolink-webapp-cache-v2";
+const CACHE_NAME = "avtolink-webapp-cache-v2"; // <-- поменял v1 -> v2
+
+const APP_SHELL = [
+  "./",
+  "./index.html",
+  "./sw.js"
+];
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) =>
-      cache.addAll(["./index.html", "./sw.js"])
-    )
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
   );
 });
 
@@ -21,33 +25,35 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
 
-  // HTML навигации: network-first (чтобы обновления приходили), fallback на cache
+  // ✅ Быстрое открытие WebApp: всегда отдаём app-shell из кэша (если есть)
   if (req.mode === "navigate") {
     event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-          return res;
-        })
-        .catch(() => caches.match(req).then((cached) => cached || caches.match("./index.html")))
+      caches.match("./index.html").then((cached) => {
+        const network = fetch(req)
+          .then((res) => {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", copy));
+            return res;
+          })
+          .catch(() => cached);
+
+        // cache-first, update in background
+        return cached || network;
+      })
     );
     return;
   }
 
+  // Остальное: cache-first для same-origin
   const url = new URL(req.url);
-
-  // Для same-origin: stale-while-revalidate
   if (url.origin === self.location.origin) {
     event.respondWith(
       caches.match(req).then((cached) => {
-        const fetchPromise = fetch(req)
-          .then((res) => {
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, res.clone()));
-            return res;
-          })
-          .catch(() => cached);
-        return cached || fetchPromise;
+        if (cached) return cached;
+        return fetch(req).then((res) => {
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, res.clone()));
+          return res;
+        });
       })
     );
   }
