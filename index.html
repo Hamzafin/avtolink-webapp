@@ -4,10 +4,7 @@
   <meta charset="UTF-8" />
   <title>Автолинк WebApp</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="preconnect" href="https://telegram.org">
-  <link rel="preconnect" href="https://script.google.com">
-  <link rel="preconnect" href="https://script.googleusercontent.com">
-  <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -146,33 +143,16 @@
     const currenciesParam = urlParams.get("currencies") || "";
     const bossVinsParam = urlParams.get("bossvins") || "";
 
-    // ⚡ VIN-списки могут быть очень большими — парсим их ЛЕНИВО, чтобы ускорить первый рендер
-    let _vins = null;
-    let _bossVins = null;
-    function getVinsFromUrl() {
-      if (_vins !== null) return _vins;
-      _vins = vinsParam ? vinsParam.split("|") : [];
-      return _vins;
-    }
-    function getBossVinsFromUrl() {
-      if (_bossVins !== null) return _bossVins;
-      _bossVins = bossVinsParam ? bossVinsParam.split("|") : [];
-      return _bossVins;
-    }
-
     const brands = brandsParam ? brandsParam.split("|") : [];
-    const investors = mergeUnique(investorsParam ? investorsParam.split("|") : [], lsRead(LS_KEYS.INVESTORS));
-    const sources = mergeUnique(sourcesParam ? sourcesParam.split("|") : [], lsRead(LS_KEYS.SALE_SOURCES));
+    const investors = investorsParam ? investorsParam.split("|") : [];
+    const sources = sourcesParam ? sourcesParam.split("|") : [];
+    const vins = vinsParam ? vinsParam.split("|") : [];
     const currencies = currenciesParam ? currenciesParam.split("|") : [];
+    const bossVins = bossVinsParam ? bossVinsParam.split("|") : [];
 
     const subtitleEl = document.getElementById("subtitle");
     const formCard = document.getElementById("formCard");
     const submitBtn = document.getElementById("submitBtn");
-
-    // Быстрее скрываем лоадер Telegram (страница может догружать списки в фоне)
-    const tgApp = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
-    try { tgApp && tgApp.ready && tgApp.ready(); } catch(e) {}
-
 
     const FORM_TITLES = {
       mgr_stock: "Сток",
@@ -214,9 +194,6 @@
       SUPPLIERS: "boss_buy_suppliers",
       PLACES: "boss_buy_places",
       BRAND_MODELS: "boss_buy_brand_models",
-      SALE_SOURCES: "sale_sources",
-      INVESTORS: "investors_cache",
-      MANAGERS: "managers_cache",
     };
     // ===================== OPTIONAL REMOTE LOOKUP (Google Apps Script JSONP) =====================
     // Чтобы подтягивать данные по VIN из Google Sheets:
@@ -312,7 +289,7 @@
     async function remoteListsLoad() {
       if (!canUseLookup()) return;
       try {
-        const res = await jsonpRequest(LOOKUP_API_URL, { action: "lists", mode: "light" });
+        const res = await jsonpRequest(LOOKUP_API_URL, { action: "lists" });
         if (res && res.ok && res.lists) {
           remoteCache.vins = res.lists.vins || [];
           remoteCache.suppliers = res.lists.suppliers || [];
@@ -334,26 +311,6 @@
         }
       } catch (e) {
         console.warn("remoteListsLoad failed:", e);
-      }
-    }
-
-    // ---- Lazy VIN list load (чтобы не тянуть 3000 VIN при старте) ----
-    let remoteVinsLoaded = false;
-    let remoteVinsLoading = false;
-    async function ensureRemoteVinsLoaded() {
-      if (!canUseLookup() || remoteVinsLoaded || remoteVinsLoading) return;
-      remoteVinsLoading = true;
-      try {
-        const res = await jsonpRequest(LOOKUP_API_URL, { action: "vins", limit: 3000 }, 12000);
-        if (res && res.ok && Array.isArray(res.vins)) {
-          remoteCache.vins = res.vins || [];
-          remoteVinsLoaded = true;
-          if (remoteCache.vins.length) lsWrite(LS_KEYS.VINS, mergeUnique(remoteCache.vins, lsRead(LS_KEYS.VINS)), 1200);
-        }
-      } catch (e) {
-        console.warn("ensureRemoteVinsLoaded failed:", e);
-      } finally {
-        remoteVinsLoading = false;
       }
     }
 
@@ -495,7 +452,7 @@
     }
 
     function getAllVins() {
-      return mergeUnique(getBossVinsFromUrl() || [], getVinsFromUrl() || [], (remoteCache.vins || []), lsRead(LS_KEYS.VINS)).map(v => String(v).trim().toUpperCase());
+      return mergeUnique(bossVins || [], vins || [], (remoteCache.vins || []), lsRead(LS_KEYS.VINS)).map(v => String(v).trim().toUpperCase());
     }
 
     function cacheBossBuyPayload(payload) {
@@ -739,7 +696,7 @@
         }
       }
 
-      input.addEventListener("focus", () => { if (inputId === "vinInput") { try { ensureRemoteVinsLoaded(); } catch(e) {} } fill(input.value); });
+      input.addEventListener("focus", () => fill(input.value));
       input.addEventListener("input", () => fill(input.value));
     }
 
@@ -1246,7 +1203,7 @@
     renderForm();
 
     // Подгрузим списки и автоподтягивание по VIN (если настроен LOOKUP_API_URL)
-    (window.requestIdleCallback || function(fn){ setTimeout(fn, 80); })(() => { try { remoteListsLoad(); } catch(e) {} });
+    remoteListsLoad();
 
     // ===================== COLLECT DATA =====================
 
@@ -1452,15 +1409,6 @@
 
       const payload = collectFormData();
 
-      // Сохраняем новые значения в подсказки (localStorage),
-      // чтобы потом они появлялись даже без справочников в URL.
-      try {
-        if (payload.source) lsAdd(LS_KEYS.SALE_SOURCES, payload.source);
-        if (payload.investor) lsAdd(LS_KEYS.INVESTORS, payload.investor);
-        if (payload.manager) lsAdd(LS_KEYS.MANAGERS, payload.manager);
-      } catch(e) {}
-
-
       try { cacheBossBuyPayload(payload); } catch(e) {}
 
       submitBtn.disabled = true;
@@ -1476,14 +1424,6 @@
       }
     });
   </script>
-  <script>
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("./sw.js", { scope: "./" });
-    }
-  </script>
 </body>
 </html>
-
-
-
 
