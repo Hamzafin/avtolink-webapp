@@ -1,7 +1,7 @@
 /* Telegram WebApp cache (GitHub Pages) — FAST
    Стратегия: app-shell cache-first + background update (stale-while-revalidate)
 */
-const CACHE_NAME = "avtolink-webapp-cache-v6";
+const CACHE_NAME = "avtolink-webapp-cache-v999";
 const ASSETS = ["./", "./index.html", "./sw.js"];
 
 self.addEventListener("install", (event) => {
