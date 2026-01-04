@@ -1,52 +1,54 @@
-/* Telegram WebApp cache (GitHub Pages) — FAST
-   Стратегия: app-shell cache-first + background update (stale-while-revalidate)
-*/
-const CACHE_NAME = "avtolink-webapp-cache-v999";
-const ASSETS = ["./", "./index.html", "./sw.js"];
+/* Telegram WebApp cache (GitHub Pages) */
+const CACHE_NAME = "avtolink-webapp-cache-v2";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.addAll(["./index.html", "./sw.js"])
+    )
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
-async function staleWhileRevalidate(req) {
-  const cache = await caches.open(CACHE_NAME);
-  const cached = await cache.match(req);
-
-  const fetchPromise = fetch(req)
-    .then((res) => {
-      // cache only успешные ответы
-      if (res && res.ok) cache.put(req, res.clone());
-      return res;
-    })
-    .catch(() => cached);
-
-  // отдаём кэш сразу, а обновление — в фоне
-  return cached || fetchPromise;
-}
-
 self.addEventListener("fetch", (event) => {
   const req = event.request;
-  const url = new URL(req.url);
 
-  // Навигация (открытие index.html): cache-first, чтобы заходило быстрее
+  // HTML навигации: network-first (чтобы обновления приходили), fallback на cache
   if (req.mode === "navigate") {
-    event.respondWith(staleWhileRevalidate("./index.html"));
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+          return res;
+        })
+        .catch(() => caches.match(req).then((cached) => cached || caches.match("./index.html")))
+    );
     return;
   }
 
-  // Только same-origin ресурсы — через SWR
+  const url = new URL(req.url);
+
+  // Для same-origin: stale-while-revalidate
   if (url.origin === self.location.origin) {
-    event.respondWith(staleWhileRevalidate(req));
+    event.respondWith(
+      caches.match(req).then((cached) => {
+        const fetchPromise = fetch(req)
+          .then((res) => {
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, res.clone()));
+            return res;
+          })
+          .catch(() => cached);
+        return cached || fetchPromise;
+      })
+    );
   }
 });
