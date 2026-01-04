@@ -130,6 +130,14 @@
   <button id="submitBtn" disabled>Отправить в бота</button>
 
   <script>
+
+    // ===================== SERVICE WORKER (GitHub Pages cache) =====================
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js").catch(() => {});
+      });
+    }
+
     const urlParams = new URLSearchParams(window.location.search);
     const formType = urlParams.get("type") || "unknown";
 
@@ -156,12 +164,13 @@
 
     const FORM_TITLES = {
       mgr_stock: "Сток",
+      sale_main: "Продажа — основная",
+      sale_deposit: "Задаток",
+      sale_extra: "Доп. услуги",
       sale_nds_broker: "Продажа — НДС с комиссией брокера",
       sale_nds_no_broker: "Продажа — НДС без комиссии брокера",
       sale_cash: "Продажа — Наличные",
       sale_cash_broker: "Продажа — Наличные с комиссией",
-      sale_deposit: "Продажа — Задаток",
-      sale_extra: "Продажа — Доп. услуги",
       fin_auto_template: "Расходы на авто РФ",
       fin_oper: "Оперрасходы",
       boss_buy: "Закупка / Оплата по VIN",
@@ -1030,7 +1039,147 @@
       submitBtn.disabled = false;
     }
 
-    function renderForm() {
+    
+    function renderSaleMain() {
+      formCard.innerHTML = "";
+
+      // --- переключатели ---
+      const payWrap = createSelectKV("salePaymentTypeInput", "Оплата", [
+        {value:"cash", label:"Нал"},
+        {value:"cashless", label:"Безнал"},
+      ], "Выберите оплату");
+      const vatWrap = createSelectKV("saleVatInput", "НДС", [
+        {value:"yes", label:"С НДС"},
+        {value:"no", label:"Без НДС"},
+      ], "Выберите НДС");
+      const commWrap = createSelectKV("saleCommissionInput", "Комиссия", [
+        {value:"yes", label:"Есть"},
+        {value:"no", label:"Нет"},
+      ], "Выберите");
+
+      payWrap.id = "salePayWrap";
+      vatWrap.id = "saleVatWrap";
+      commWrap.id = "saleCommWrap";
+
+      formCard.appendChild(payWrap);
+      formCard.appendChild(vatWrap);
+      formCard.appendChild(commWrap);
+
+      const badge = document.createElement("div");
+      badge.style.marginTop = "6px";
+      badge.innerHTML = `<span class="pill" id="saleVariantBadge">Вариант: —</span>`;
+      formCard.appendChild(badge);
+
+      // --- общие поля ---
+      formCard.appendChild(createInput("managerInput", "Менеджер", "Имя менеджера"));
+      formCard.appendChild(createInput("saleDateInput", "Дата продажи", "", todayISO(), "date"));
+      formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "", brands));
+      formCard.appendChild(createInput("vinInput", "VIN (можно последние 4 символа)", "Последние 4 или полный VIN"));
+      formCard.appendChild(createAutocompleteInput("leadSourceInput", "Источник", "Например, Авито", sources));
+
+      const buyerWrap = createInput("buyerInput", "Покупатель", "");
+      const receiverWrap = createInput("receiverInput", "Получатель", "");
+
+      formCard.appendChild(buyerWrap);
+      formCard.appendChild(receiverWrap);
+
+      // --- суммы/поля (показываются по выбору) ---
+      const priceCashWrap = createInput("priceCashInput", "Цена (нал)", "");
+      const priceCashNoCommWrap = createInput("priceCashNoCommInput", "Цена без комиссии (нал)", "");
+      const managerFeeWrap = createInput("managerFeeInput", "Комиссия менеджера", "");
+
+      const priceCashlessWrap = createInput("priceCashlessInput", "Сумма (безнал, без НДС)", "");
+      const priceNdsWrap = createInput("priceNdsInput", "Цена с НДС", "");
+      const markupNdsWrap = createInput("markupNdsInput", "Наценка НДС (% / руб)", "");
+
+      const contractPriceWrap = createInput("contractPriceInput", "Сумма договора", "");
+      const brokerPriceWrap = createInput("brokerPriceInput", "Цена без комиссии брокера", "");
+      const brokerExpenseWrap = createInput("brokerExpenseInput", "Расход брокера (кому/сумма/комментарий)", "");
+
+      formCard.appendChild(priceCashWrap);
+      formCard.appendChild(priceCashNoCommWrap);
+      formCard.appendChild(managerFeeWrap);
+
+      formCard.appendChild(priceCashlessWrap);
+      formCard.appendChild(priceNdsWrap);
+      formCard.appendChild(markupNdsWrap);
+
+      formCard.appendChild(contractPriceWrap);
+      formCard.appendChild(brokerPriceWrap);
+      formCard.appendChild(brokerExpenseWrap);
+
+      function updateSaleMainVisibility() {
+        const payment = document.getElementById("salePaymentTypeInput").value || "cash";
+        const commission = (document.getElementById("saleCommissionInput").value || "no") === "yes";
+        const vatYes = (document.getElementById("saleVatInput").value || "no") === "yes";
+        const vat = (payment === "cashless") && vatYes;
+
+        // НДС доступен только при безнале
+        const vatSelect = document.getElementById("saleVatInput");
+        if (payment !== "cashless") {
+          vatSelect.disabled = true;
+          vatSelect.value = "no";
+        } else {
+          vatSelect.disabled = false;
+        }
+
+        // Покупатель всегда, получатель только при нале
+        showEl(receiverWrap, payment === "cash");
+
+        // Нал
+        showEl(priceCashWrap, payment === "cash");
+        showEl(priceCashNoCommWrap, payment === "cash" && commission);
+        showEl(managerFeeWrap, payment === "cash" && commission);
+
+        // Безнал
+        showEl(priceCashlessWrap, payment === "cashless" && !vat);
+        showEl(priceNdsWrap, payment === "cashless" && vat);
+        showEl(markupNdsWrap, payment === "cashless" && vat);
+
+        // Комиссия/брокер (для безнала)
+        showEl(contractPriceWrap, payment === "cashless" && commission);
+        showEl(brokerPriceWrap, payment === "cashless" && commission);
+        showEl(brokerExpenseWrap, payment === "cashless" && commission);
+
+        // Скрыть лишнее при нале
+        if (payment === "cash") {
+          showEl(priceCashlessWrap, false);
+          showEl(priceNdsWrap, false);
+          showEl(markupNdsWrap, false);
+          showEl(contractPriceWrap, false);
+          showEl(brokerPriceWrap, false);
+          showEl(brokerExpenseWrap, false);
+        }
+
+        // Бейдж варианта
+        let variant = "";
+        if (payment === "cash" && !commission) variant = "Нал / без комиссии";
+        if (payment === "cash" && commission) variant = "Нал / с комиссией";
+        if (payment === "cashless" && vat && !commission) variant = "Безнал / с НДС / без брокера";
+        if (payment === "cashless" && vat && commission) variant = "Безнал / с НДС / с брокером";
+        if (payment === "cashless" && !vat && !commission) variant = "Безнал / без НДС / без брокера";
+        if (payment === "cashless" && !vat && commission) variant = "Безнал / без НДС / с брокером";
+
+        const badgeEl = document.getElementById("saleVariantBadge");
+        if (badgeEl) badgeEl.textContent = "Вариант: " + variant;
+      }
+
+      // дефолты
+      document.getElementById("salePaymentTypeInput").value = "cash";
+      document.getElementById("saleVatInput").value = "no";
+      document.getElementById("saleCommissionInput").value = "no";
+
+      document.getElementById("salePaymentTypeInput").addEventListener("change", updateSaleMainVisibility);
+      document.getElementById("saleVatInput").addEventListener("change", updateSaleMainVisibility);
+      document.getElementById("saleCommissionInput").addEventListener("change", updateSaleMainVisibility);
+
+      updateSaleMainVisibility();
+      setupVinAutocompleteSmart("vinInput", getAllVins);
+
+      submitBtn.disabled = false;
+    }
+
+function renderForm() {
       formCard.innerHTML = "";
 
       if (formType === "mgr_stock") {
@@ -1038,10 +1187,7 @@
           {value:"Склад", label:"Склад"},
           {value:"Поставка", label:"Поставка"},
         ], "Выберите тип сделки"));
-
-        formCard.appendChild(createMultiOwnerInput(investors));
-
-        formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "Начните вводить марку или модель", brands));
+formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "Начните вводить марку или модель", brands));
         formCard.appendChild(createInput("vinInput", "VIN (можно последние 4 символа)", "Последние 4 или полный VIN"));
         formCard.appendChild(createInput("configInput", "Комплектация", "Например, Comfort"));
         formCard.appendChild(createInput("bodyColorInput", "Цвет кузова", "Черный"));
@@ -1060,8 +1206,45 @@
         return;
       }
 
-      // ✅ Продажи: собственник НЕ добавляем (как вы просили)
-      if (formType === "sale_nds_broker") {
+            if (formType === "sale_main") {
+        renderSaleMain();
+        return;
+      }
+
+// ✅ Продажи: собственник НЕ добавляем (как вы просили)
+      
+      if (formType === "sale_main") {
+        payload.manager = document.getElementById("managerInput").value;
+        payload.sale_date = getRuDate("saleDateInput");
+        payload.brand_model = document.getElementById("brandModelInput").value;
+        payload.vin = document.getElementById("vinInput").value;
+        payload.source = document.getElementById("leadSourceInput").value;
+        payload.buyer = document.getElementById("buyerInput").value;
+        payload.receiver = document.getElementById("receiverInput").value;
+
+        payload.payment_type = document.getElementById("salePaymentTypeInput").value; // cash / cashless
+        payload.vat = (payload.payment_type === "cashless" && document.getElementById("saleVatInput").value === "yes") ? "да" : "нет";
+        payload.commission = (document.getElementById("saleCommissionInput").value === "yes") ? "да" : "нет";
+
+        const badgeEl = document.getElementById("saleVariantBadge");
+        payload.variant = badgeEl ? String(badgeEl.textContent || "").replace("Вариант:", "").trim() : "";
+
+        payload.price_cash = document.getElementById("priceCashInput").value;
+        payload.price_cash_no_comm = document.getElementById("priceCashNoCommInput").value;
+        payload.manager_fee = document.getElementById("managerFeeInput").value;
+
+        payload.price_cashless = document.getElementById("priceCashlessInput").value;
+        payload.price_nds = document.getElementById("priceNdsInput").value;
+        payload.markup_nds = document.getElementById("markupNdsInput").value;
+
+        payload.contract_price = document.getElementById("contractPriceInput").value;
+        payload.broker_price = document.getElementById("brokerPriceInput").value;
+        payload.broker_expense = document.getElementById("brokerExpenseInput").value;
+
+        return payload;
+      }
+
+if (formType === "sale_nds_broker") {
         formCard.appendChild(createInput("managerInput", "Менеджер", "Имя менеджера"));
         formCard.appendChild(createInput("saleDateInput", "Дата продажи", "", todayISO(), "date"));
         formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "", brands));
@@ -1212,10 +1395,6 @@
 
       if (formType === "mgr_stock") {
         payload.deal_type = document.getElementById("dealTypeInput").value;
-
-        const ownersArr = collectOwners();
-        payload.owners = ownersArr;
-        payload.owner = ownersArr.join("\n");
 
         payload.brand_model = document.getElementById("brandModelInput").value;
         payload.vin = document.getElementById("vinInput").value;
