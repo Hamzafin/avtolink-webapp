@@ -1393,6 +1393,41 @@ if (formType === "sale_nds_broker") {
     function collectFormData() {
       const payload = { formType };
 
+      
+      const val = (id) => { const el = document.getElementById(id); return el ? el.value : ""; };
+
+      // ===== Основная продажа (единая форма) =====
+      if (formType === "sale_main") {
+        payload.manager = val("managerInput");
+        payload.sale_date = getRuDate("saleDateInput");
+        payload.brand_model = val("brandModelInput");
+        payload.vin = val("vinInput");
+        payload.source = val("leadSourceInput");
+
+        payload.payment_type = val("salePaymentTypeInput"); // cash / cashless
+        payload.vat = (payload.payment_type === "cashless" && val("saleVatInput") === "yes") ? "да" : "нет";
+        payload.commission = (val("saleCommissionInput") === "yes") ? "да" : "нет";
+
+        const badgeEl = document.getElementById("saleVariantBadge");
+        payload.variant = badgeEl ? String(badgeEl.textContent || "").replace("Вариант:", "").trim() : "";
+
+        payload.price_cash = val("priceCashInput");
+        payload.price_no_commission = val("priceCashNoCommInput");
+        payload.manager_fee = val("managerFeeInput");
+
+        payload.price_cashless = val("priceCashlessInput");
+        payload.price_nds = val("priceNdsInput");
+        payload.markup_nds = val("markupNdsInput");
+        payload.contract_price = val("contractPriceInput");
+        payload.broker_price = val("brokerPriceInput");
+        payload.broker_expense = val("brokerExpenseInput");
+
+        payload.receiver = val("receiverInput");
+        payload.buyer = val("buyerInput");
+
+        return payload;
+      }
+
       if (formType === "mgr_stock") {
         payload.deal_type = document.getElementById("dealTypeInput").value;
 
