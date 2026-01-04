@@ -161,8 +161,8 @@
     }
 
     const brands = brandsParam ? brandsParam.split("|") : [];
-    const investors = investorsParam ? investorsParam.split("|") : [];
-    const sources = sourcesParam ? sourcesParam.split("|") : [];
+    const investors = mergeUnique(investorsParam ? investorsParam.split("|") : [], lsRead(LS_KEYS.INVESTORS));
+    const sources = mergeUnique(sourcesParam ? sourcesParam.split("|") : [], lsRead(LS_KEYS.SALE_SOURCES));
     const currencies = currenciesParam ? currenciesParam.split("|") : [];
 
     const subtitleEl = document.getElementById("subtitle");
@@ -176,7 +176,6 @@
 
     const FORM_TITLES = {
       mgr_stock: "Сток",
-      sale_main: "Продажа — основная",
       sale_nds_broker: "Продажа — НДС с комиссией брокера",
       sale_nds_no_broker: "Продажа — НДС без комиссии брокера",
       sale_cash: "Продажа — Наличные",
@@ -215,6 +214,9 @@
       SUPPLIERS: "boss_buy_suppliers",
       PLACES: "boss_buy_places",
       BRAND_MODELS: "boss_buy_brand_models",
+      SALE_SOURCES: "sale_sources",
+      INVESTORS: "investors_cache",
+      MANAGERS: "managers_cache",
     };
     // ===================== OPTIONAL REMOTE LOOKUP (Google Apps Script JSONP) =====================
     // Чтобы подтягивать данные по VIN из Google Sheets:
@@ -1079,6 +1081,9 @@
           {value:"Склад", label:"Склад"},
           {value:"Поставка", label:"Поставка"},
         ], "Выберите тип сделки"));
+
+        formCard.appendChild(createMultiOwnerInput(investors));
+
         formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "Начните вводить марку или модель", brands));
         formCard.appendChild(createInput("vinInput", "VIN (можно последние 4 символа)", "Последние 4 или полный VIN"));
         formCard.appendChild(createInput("configInput", "Комплектация", "Например, Comfort"));
@@ -1099,110 +1104,7 @@
       }
 
       // ✅ Продажи: собственник НЕ добавляем (как вы просили)
-      
-      if (formType === "sale_main") {
-        formCard.appendChild(createInput("managerInput", "Менеджер", "Имя менеджера"));
-        formCard.appendChild(createInput("saleDateInput", "Дата продажи", "", todayISO(), "date"));
-        formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "", brands));
-        formCard.appendChild(createInput("vinInput", "VIN (можно последние 4 символа)", "Последние 4 или полный VIN"));
-        formCard.appendChild(createAutocompleteInput("leadSourceInput", "Источник", "Например, Авито", sources));
-
-        // Переключатели
-        const pm = createSelectKV("payMethodInput", "Тип оплаты", [
-          {value:"cash", label:"Нал"},
-          {value:"wire", label:"Безнал"},
-        ], "Выберите тип оплаты");
-        formCard.appendChild(pm);
-
-        const nds = createSelectKV("ndsModeInput", "НДС", [
-          {value:"with_nds", label:"С НДС"},
-          {value:"no_nds", label:"Без НДС"},
-        ], "Выберите режим НДС");
-        formCard.appendChild(nds);
-
-        const comm = createSelectKV("commissionModeInput", "Комиссия", [
-          {value:"no", label:"Без комиссии"},
-          {value:"yes", label:"С комиссией"},
-        ], "Выберите комиссию");
-        formCard.appendChild(comm);
-
-        // Поля (будем показывать/скрывать)
-        const cashPrice = createInput("cashPriceInput", "Цена (нал)", "");
-        const cashNoComm = createInput("priceNoCommInput", "Цена без комиссии", "");
-        const managerFee = createInput("managerFeeInput", "Комиссия менеджера", "");
-        const receiver = createInput("receiverInput", "Кому передали средства", "");
-        const buyer = createInput("buyerInput", "Покупатель", "");
-
-        const priceNds = createInput("priceNdsInput", "Цена с НДС", "");
-        const markupNds = createInput("markupNdsInput", "Наценка НДС (% / руб)", "");
-        const contractPrice = createInput("contractPriceInput", "Цена в договоре", "");
-        const priceCash = createInput("priceCashInput", "Цена за наличные (если нужно)", "");
-        const brokerPrice = createInput("brokerPriceInput", "Цена без комиссии брокера", "");
-        const brokerExpense = createInput("brokerExpenseInput", "Расход брокера (описание)", "");
-
-        // Группируем в блоки
-        const cashBlock = document.createElement("div");
-        cashBlock.id = "cashBlock";
-        cashBlock.appendChild(cashPrice);
-        cashBlock.appendChild(cashNoComm);
-        cashBlock.appendChild(managerFee);
-
-        const wireBlock = document.createElement("div");
-        wireBlock.id = "wireBlock";
-        wireBlock.appendChild(priceNds);
-        wireBlock.appendChild(markupNds);
-        wireBlock.appendChild(contractPrice);
-        wireBlock.appendChild(priceCash);
-        wireBlock.appendChild(brokerPrice);
-        wireBlock.appendChild(brokerExpense);
-
-        formCard.appendChild(cashBlock);
-        formCard.appendChild(wireBlock);
-        formCard.appendChild(receiver);
-        formCard.appendChild(buyer);
-
-        function applySaleMainVisibility() {
-          const pay = document.getElementById("payMethodInput").value;
-          const ndsVal = document.getElementById("ndsModeInput").value;
-          const commVal = document.getElementById("commissionModeInput").value;
-
-          if (pay === "cash") {
-            cashBlock.style.display = "";
-            wireBlock.style.display = "none";
-            // НДС для нал не нужен
-            document.getElementById("ndsModeInput").disabled = true;
-            document.getElementById("ndsModeInput").value = "with_nds";
-            // если без комиссии — скрываем поля
-            cashNoComm.style.display = (commVal === "yes") ? "" : "none";
-            managerFee.style.display = (commVal === "yes") ? "" : "none";
-          } else {
-            cashBlock.style.display = "none";
-            wireBlock.style.display = "";
-            document.getElementById("ndsModeInput").disabled = false;
-
-            // поля НДС показываем только если выбран with_nds
-            priceNds.style.display = (ndsVal === "with_nds") ? "" : "none";
-            markupNds.style.display = (ndsVal === "with_nds") ? "" : "none";
-            priceCash.style.display = (ndsVal === "with_nds") ? "" : "none";
-
-            // брокерские поля показываем только если комиссия yes
-            brokerPrice.style.display = (commVal === "yes") ? "" : "none";
-            brokerExpense.style.display = (commVal === "yes") ? "" : "none";
-          }
-        }
-
-        document.getElementById("payMethodInput").addEventListener("change", applySaleMainVisibility);
-        document.getElementById("ndsModeInput").addEventListener("change", applySaleMainVisibility);
-        document.getElementById("commissionModeInput").addEventListener("change", applySaleMainVisibility);
-
-        setupVinAutocompleteSmart("vinInput", getAllVins);
-        setTimeout(applySaleMainVisibility, 0);
-
-        submitBtn.disabled = false;
-        return;
-      }
-
-if (formType === "sale_nds_broker") {
+      if (formType === "sale_nds_broker") {
         formCard.appendChild(createInput("managerInput", "Менеджер", "Имя менеджера"));
         formCard.appendChild(createInput("saleDateInput", "Дата продажи", "", todayISO(), "date"));
         formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "", brands));
@@ -1353,7 +1255,11 @@ if (formType === "sale_nds_broker") {
 
       if (formType === "mgr_stock") {
         payload.deal_type = document.getElementById("dealTypeInput").value;
-        
+
+        const ownersArr = collectOwners();
+        payload.owners = ownersArr;
+        payload.owner = ownersArr.join("\n");
+
         payload.brand_model = document.getElementById("brandModelInput").value;
         payload.vin = document.getElementById("vinInput").value;
         payload.complectation = document.getElementById("configInput").value;
@@ -1366,51 +1272,7 @@ if (formType === "sale_nds_broker") {
         return payload;
       }
 
-      
-      if (formType === "sale_main") {
-        payload.manager = document.getElementById("managerInput").value;
-        payload.sale_date = document.getElementById("saleDateInput").value;
-        payload.brand_model = document.getElementById("brandModelInput").value;
-        payload.vin = document.getElementById("vinInput").value;
-        payload.source = document.getElementById("leadSourceInput").value;
-
-        const pay = document.getElementById("payMethodInput").value;
-        const ndsVal = document.getElementById("ndsModeInput").value;
-        const commVal = document.getElementById("commissionModeInput").value;
-
-        payload.payment_method = pay;
-        payload.nds_mode = (pay === "cash") ? "" : ndsVal;
-        payload.commission_mode = commVal;
-
-        payload.receiver = document.getElementById("receiverInput").value;
-        payload.buyer = document.getElementById("buyerInput").value;
-
-        if (pay === "cash") {
-          payload.price = document.getElementById("cashPriceInput").value;
-          if (commVal === "yes") {
-            payload.price_no_commission = document.getElementById("priceNoCommInput").value;
-            payload.manager_fee = document.getElementById("managerFeeInput").value;
-          }
-        } else {
-          // безнал
-          payload.contract_price = document.getElementById("contractPriceInput").value;
-          // для удобства дублируем сумму сделки в price
-          payload.price = payload.contract_price;
-
-          if (ndsVal === "with_nds") {
-            payload.price_nds = document.getElementById("priceNdsInput").value;
-            payload.markup_nds = document.getElementById("markupNdsInput").value;
-            payload.price_cash = document.getElementById("priceCashInput").value;
-          }
-          if (commVal === "yes") {
-            payload.broker_price = document.getElementById("brokerPriceInput").value;
-            payload.broker_expense = document.getElementById("brokerExpenseInput").value;
-          }
-        }
-        return payload;
-      }
-
-if (formType === "sale_nds_broker") {
+      if (formType === "sale_nds_broker") {
         payload.manager = document.getElementById("managerInput").value;
         payload.sale_date = getRuDate("saleDateInput");
         payload.brand_model = document.getElementById("brandModelInput").value;
@@ -1589,6 +1451,15 @@ if (formType === "sale_nds_broker") {
       try { tg.ready(); } catch(e) {}
 
       const payload = collectFormData();
+
+      // Сохраняем новые значения в подсказки (localStorage),
+      // чтобы потом они появлялись даже без справочников в URL.
+      try {
+        if (payload.source) lsAdd(LS_KEYS.SALE_SOURCES, payload.source);
+        if (payload.investor) lsAdd(LS_KEYS.INVESTORS, payload.investor);
+        if (payload.manager) lsAdd(LS_KEYS.MANAGERS, payload.manager);
+      } catch(e) {}
+
 
       try { cacheBossBuyPayload(payload); } catch(e) {}
 
