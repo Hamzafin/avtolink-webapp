@@ -136,7 +136,7 @@
     const urlParams = new URLSearchParams(window.location.search);
     const formType = urlParams.get("type") || "unknown";
 
-    const ENABLE_SUFFIX_LOOKUP = (formType === "boss_buy");
+    const ENABLE_SUFFIX_LOOKUP = true;
 
     const categoryFromUrl = urlParams.get("category") || "";
     const brandsParam = urlParams.get("brands") || "";
@@ -175,6 +175,7 @@
 
 
     const FORM_TITLES = {
+      sale_main: "Продажа — основная",
       mgr_stock: "Сток",
       sale_nds_broker: "Продажа — НДС с комиссией брокера",
       sale_nds_no_broker: "Продажа — НДС без комиссии брокера",
@@ -221,7 +222,7 @@
     // 2) Вставь ссылку вида https://script.google.com/macros/s/XXXX/exec в LOOKUP_API_URL
     // Если LOOKUP_API_URL пустой — всё работает как раньше, просто без автоподтягивания.
 
-    const LOOKUP_API_URL = "https://script.google.com/macros/s/AKfycbzROaiTckzJWq4bzW9-k2-23VZ5SgoKOXPMVu5-d9g0x0eh-ps5hJl1zpFY5fpM1hL30w/exec";   // <-- вставь сюда URL /exec
+    const LOOKUP_API_URL = "https://script.google.com/macros/s/AKfycbzuBwFkGUiXnJcwUeTSt5jP8Y1BdE8PD0MQO_0SH6hr74O2htidfhD3Oop5zZ80G-GlDw/exec";   // <-- вставь сюда URL /exec
     const LOOKUP_API_TOKEN = ""; // <-- опционально (должен совпадать с TOKEN в Apps Script)
 
     const remoteCache = { vins: [], suppliers: [], places: [], brand_models: [] };
@@ -449,6 +450,30 @@
         }
       }
     }
+
+    // Универсальное автозаполнение по VIN (для всех форм)
+    async function prefillByVinForCurrentForm(fullVin) {
+      const vin = normalizeVin(fullVin);
+      if (!vin) return;
+
+      // Для закупки/оплаты руководителя — своя логика
+      if (formType === "boss_buy") {
+        await prefillBossBuyByVin(vin);
+        return;
+      }
+
+      const data = await lookupByVin(vin);
+      if (!data) return;
+
+      // Заполняем только если поле пустое (чтобы не перетирать ручной ввод)
+      const brandEl = document.getElementById("brandModelInput");
+      if (brandEl && !brandEl.value) brandEl.value = data.brand_model || "";
+
+      const cfgEl = document.getElementById("configInput");
+      if (cfgEl && !cfgEl.value) cfgEl.value = data.complectation || "";
+    }
+
+
 
 
 
@@ -710,7 +735,7 @@
           return;
         }
 
-        // если локально ничего не нашли, а введено 4+ символа — спросим Apps Script (только для boss_buy)
+        // если локально ничего не нашли, а введено 4+ символа — спросим Apps Script по последним символам VIN
         if (ENABLE_SUFFIX_LOOKUP && canUseLookup() && f.length >= 4) {
           const mySeq = ++reqSeq;
           requestSuffixCandidates(filter)
@@ -726,10 +751,10 @@
                 dl.appendChild(o);
               });
 
-              // если нашли ровно 1 VIN — автоподставим и подтянем поля (boss_buy)
+              // если нашли ровно 1 VIN — автоподставим и подтянем поля
               if (candidates.length === 1 && inputId === "vinInput") {
                 input.value = normalize(candidates[0]);
-                setTimeout(() => { try { prefillBossBuyByVin(input.value); } catch(e) {} }, 0);
+                setTimeout(() => { try { prefillByVinForCurrentForm(input.value); } catch(e) {} }, 0);
               }
             })
             .catch(() => {});
@@ -1026,10 +1051,10 @@
       const vinEl = document.getElementById("vinInput");
       vinEl.addEventListener("input", (e) => {
         if (vinPrefillTimer) clearTimeout(vinPrefillTimer);
-        vinPrefillTimer = setTimeout(() => prefillBossBuyByVin(e.target.value), 450);
+        vinPrefillTimer = setTimeout(() => prefillByVinForCurrentForm(e.target.value), 450);
       });
-      vinEl.addEventListener("change", (e) => prefillBossBuyByVin(e.target.value));
-      vinEl.addEventListener("blur", (e) => prefillBossBuyByVin(e.target.value));
+      vinEl.addEventListener("change", (e) => prefillByVinForCurrentForm(e.target.value));
+      vinEl.addEventListener("blur", (e) => prefillByVinForCurrentForm(e.target.value));
       document.getElementById("modeSelect").addEventListener("change", (e) => setMode(e.target.value));
 
       ["currencyInput","amountCurrencyInput","rateInput"].forEach(id => {
@@ -1078,9 +1103,6 @@
           {value:"Склад", label:"Склад"},
           {value:"Поставка", label:"Поставка"},
         ], "Выберите тип сделки"));
-
-        formCard.appendChild(createMultiOwnerInput(investors));
-
         formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "Начните вводить марку или модель", brands));
         formCard.appendChild(createInput("vinInput", "VIN (можно последние 4 символа)", "Последние 4 или полный VIN"));
         formCard.appendChild(createInput("configInput", "Комплектация", "Например, Comfort"));
@@ -1101,7 +1123,93 @@
       }
 
       // ✅ Продажи: собственник НЕ добавляем (как вы просили)
-      if (formType === "sale_nds_broker") {
+      
+      if (formType === "sale_main") {
+        formCard.appendChild(createInput("managerInput", "Менеджер"));
+        formCard.appendChild(createInput("saleDateInput", "Дата продажи", "", todayISO(), "date"));
+
+        formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "", brands));
+        formCard.appendChild(createAutocompleteInput("vinInput", "VIN", "17 символов или последние 4", vins));
+        formCard.appendChild(createAutocompleteInput("leadSourceInput", "Источник", "", sources));
+
+        formCard.appendChild(
+          createSelectKV("salePayMethodSelect", "Оплата", [
+            { value: "cash", label: "Нал" },
+            { value: "cashless", label: "Безнал" },
+          ])
+        );
+        formCard.appendChild(
+          createSelectKV("saleNdsSelect", "НДС", [
+            { value: "no_nds", label: "Без НДС" },
+            { value: "nds", label: "С НДС" },
+          ])
+        );
+        formCard.appendChild(
+          createSelectKV("saleCommissionSelect", "Комиссия", [
+            { value: "no", label: "Без комиссии" },
+            { value: "yes", label: "С комиссией" },
+          ])
+        );
+
+        const blockNds = document.createElement("div");
+        blockNds.id = "saleMainBlockNds";
+        blockNds.appendChild(createInput("priceNdsInput", "Цена с НДС", "", "", "number"));
+        blockNds.appendChild(createInput("markupNdsInput", "Наценка НДС", "", "", "number"));
+
+        const blockNdsNoBroker = document.createElement("div");
+        blockNdsNoBroker.id = "saleMainBlockNdsNoBroker";
+        blockNdsNoBroker.appendChild(createInput("priceCashInput", "Цена за наличные", "", "", "number"));
+
+        const blockBroker = document.createElement("div");
+        blockBroker.id = "saleMainBlockBroker";
+        blockBroker.appendChild(createInput("contractPriceInput", "Цена в договоре", "", "", "number"));
+        blockBroker.appendChild(createInput("brokerPriceInput", "Цена без комиссии брокера", "", "", "number"));
+        blockBroker.appendChild(createInput("brokerExpenseInput", "Расход брокера", "", "", "number"));
+
+        const blockNoNds = document.createElement("div");
+        blockNoNds.id = "saleMainBlockNoNds";
+        blockNoNds.appendChild(createInput("priceInput", "Цена продажи", "", "", "number"));
+
+        const blockComm = document.createElement("div");
+        blockComm.id = "saleMainBlockComm";
+        blockComm.appendChild(createInput("priceNoCommInput", "Цена без комиссии", "", "", "number"));
+        blockComm.appendChild(createInput("managerFeeInput", "Комиссия менеджера", "", "", "number"));
+
+        formCard.appendChild(blockNds);
+        formCard.appendChild(blockNdsNoBroker);
+        formCard.appendChild(blockBroker);
+        formCard.appendChild(blockNoNds);
+        formCard.appendChild(blockComm);
+
+        formCard.appendChild(createInput("receiverInput", "Кому передали средства"));
+        formCard.appendChild(createInput("buyerInput", "Покупатель"));
+
+        // дефолты
+        document.getElementById("salePayMethodSelect").value = "cash";
+        document.getElementById("saleNdsSelect").value = "no_nds";
+        document.getElementById("saleCommissionSelect").value = "no";
+
+        function updateSaleMainUI() {
+          const nds = document.getElementById("saleNdsSelect").value;
+          const comm = document.getElementById("saleCommissionSelect").value;
+
+          const showNds = nds === "nds";
+          blockNds.style.display = showNds ? "" : "none";
+          blockBroker.style.display = showNds && comm === "yes" ? "" : "none";
+          blockNdsNoBroker.style.display = showNds && comm !== "yes" ? "" : "none";
+
+          blockNoNds.style.display = showNds ? "none" : "";
+          blockComm.style.display = (!showNds && comm === "yes") ? "" : "none";
+        }
+
+        updateSaleMainUI();
+        document.getElementById("saleNdsSelect").addEventListener("change", updateSaleMainUI);
+        document.getElementById("saleCommissionSelect").addEventListener("change", updateSaleMainUI);
+
+        return;
+      }
+
+if (formType === "sale_nds_broker") {
         formCard.appendChild(createInput("managerInput", "Менеджер", "Имя менеджера"));
         formCard.appendChild(createInput("saleDateInput", "Дата продажи", "", todayISO(), "date"));
         formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "", brands));
@@ -1242,6 +1350,26 @@
 
     renderForm();
 
+    // Универсально: если VIN уже есть в таблице — подтянем данные в поля (для удобства)
+    (function setupVinPrefillOnce(){
+      const vinEl = document.getElementById("vinInput");
+      if (!vinEl) return;
+      if (vinEl.dataset && vinEl.dataset.prefill === "1") return;
+      if (vinEl.dataset) vinEl.dataset.prefill = "1";
+
+      let t = null;
+      const fire = (v) => { try { prefillByVinForCurrentForm(v); } catch(e) {} };
+
+      vinEl.addEventListener("input", (e) => {
+        if (t) clearTimeout(t);
+        t = setTimeout(() => fire(e.target.value), 450);
+      });
+      vinEl.addEventListener("change", (e) => fire(e.target.value));
+      vinEl.addEventListener("blur", (e) => fire(e.target.value));
+    })();
+
+
+
     // Подгрузим списки и автоподтягивание по VIN (если настроен LOOKUP_API_URL)
     (window.requestIdleCallback || function(fn){ setTimeout(fn, 80); })(() => { try { remoteListsLoad(); } catch(e) {} });
 
@@ -1252,10 +1380,6 @@
 
       if (formType === "mgr_stock") {
         payload.deal_type = document.getElementById("dealTypeInput").value;
-
-        const ownersArr = collectOwners();
-        payload.owners = ownersArr;
-        payload.owner = ownersArr.join("\n");
 
         payload.brand_model = document.getElementById("brandModelInput").value;
         payload.vin = document.getElementById("vinInput").value;
@@ -1269,7 +1393,49 @@
         return payload;
       }
 
-      if (formType === "sale_nds_broker") {
+      
+      if (formType === "sale_main") {
+        payload.manager = document.getElementById("managerInput").value;
+        payload.sale_date = getRuDate(document.getElementById("saleDateInput").value);
+        payload.brand_model = document.getElementById("brandModelInput").value;
+        payload.vin = document.getElementById("vinInput").value;
+        payload.source = document.getElementById("leadSourceInput").value;
+
+        const payMethod = document.getElementById("salePayMethodSelect").value;
+        const nds = document.getElementById("saleNdsSelect").value;
+        const comm = document.getElementById("saleCommissionSelect").value;
+
+        // мета (не пишется в таблицу, но полезно в RAW и логах)
+        payload._pay_method = payMethod;
+        payload._nds = nds;
+        payload._commission = comm;
+
+        if (nds === "nds") {
+          payload.price_nds = document.getElementById("priceNdsInput").value;
+          payload.markup_nds = document.getElementById("markupNdsInput").value;
+
+          if (comm === "yes") {
+            payload.contract_price = document.getElementById("contractPriceInput").value;
+            payload.broker_price = document.getElementById("brokerPriceInput").value;
+            payload.broker_expense = document.getElementById("brokerExpenseInput").value;
+          } else {
+            payload.price_cash = document.getElementById("priceCashInput").value;
+          }
+        } else {
+          payload.price = document.getElementById("priceInput").value;
+
+          if (comm === "yes") {
+            payload.price_no_commission = document.getElementById("priceNoCommInput").value;
+            payload.manager_fee = document.getElementById("managerFeeInput").value;
+          }
+        }
+
+        payload.receiver = document.getElementById("receiverInput").value;
+        payload.buyer = document.getElementById("buyerInput").value;
+        return payload;
+      }
+
+if (formType === "sale_nds_broker") {
         payload.manager = document.getElementById("managerInput").value;
         payload.sale_date = getRuDate("saleDateInput");
         payload.brand_model = document.getElementById("brandModelInput").value;
@@ -1471,5 +1637,4 @@
   </script>
 </body>
 </html>
-
 
