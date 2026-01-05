@@ -1,5 +1,5 @@
 /* Telegram WebApp cache (GitHub Pages) */
-const CACHE_NAME = "avtolink-webapp-cache-v4";
+const CACHE_NAME = "avtolink-webapp-cache-v9";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -23,19 +23,18 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
 
-    // HTML навигации: cache-first + обновление в фоне (быстро открывается)
+  // HTML навигации: network-first (чтобы обновления приходили), fallback на cache
   if (req.mode === "navigate") {
     event.respondWith(
-      caches.match("./index.html", { ignoreSearch: true }).then((cached) => {
-        const fetchPromise = fetch(req)
-          .then((res) => {
-            const copy = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", copy));
-            return res;
-          })
-          .catch(() => cached);
-        return cached || fetchPromise;
-      })
+      fetch(req)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+          return res;
+        })
+        .catch(() =>
+          caches.match("./index.html", { ignoreSearch: true })
+        )
     );
     return;
   }
