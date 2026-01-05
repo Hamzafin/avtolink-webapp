@@ -23,26 +23,20 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
 
-  // HTML навигации: stale-while-revalidate (быстро открываем из cache, обновляем в фоне)
+    // HTML навигации: cache-first + обновление в фоне (быстро открывается)
   if (req.mode === "navigate") {
-    event.respondWith((async () => {
-      const cache = await caches.open(CACHE_NAME);
-
-      // Всегда отдаём index.html (у нас single-page)
-      const cached = await cache.match("./index.html", { ignoreSearch: true });
-
-      // В фоне обновим кэш
-      const fetchPromise = fetch(req)
-        .then((res) => {
-          if (res && res.ok) {
-            cache.put("./index.html", res.clone());
-          }
-          return res;
-        })
-        .catch(() => null);
-
-      return cached || fetchPromise || Response.error();
-    })());
+    event.respondWith(
+      caches.match("./index.html", { ignoreSearch: true }).then((cached) => {
+        const fetchPromise = fetch(req)
+          .then((res) => {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", copy));
+            return res;
+          })
+          .catch(() => cached);
+        return cached || fetchPromise;
+      })
+    );
     return;
   }
 
