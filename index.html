@@ -4,14 +4,19 @@
   <meta charset="UTF-8" />
   <title>Автолинк WebApp</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
+    *,*::before,*::after{box-sizing:border-box;}
+
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       margin: 0;
       padding: 16px;
       background: #0f172a;
       color: #e5e7eb;
+      min-height: var(--app-height, var(--tg-viewport-height, 100vh));
+      padding-bottom: calc(16px + env(safe-area-inset-bottom));
+      overscroll-behavior: contain;
     }
     h1 {
       font-size: 20px;
@@ -85,6 +90,11 @@
     }
     .hidden { display:none; }
 
+    .toggle-row{display:flex;align-items:center;gap:10px;font-size:13px;color:#cbd5e1;}
+    .toggle-row input{width:18px;height:18px;}
+    .toggle-row small{color:#94a3b8;line-height:1.25;}
+
+
     button#submitBtn {
       width: 100%;
       border-radius: 999px;
@@ -131,11 +141,25 @@
 
   <script>
 
+    const APP_VERSION = "4";
+
     // ===================== SERVICE WORKER (GitHub Pages cache) =====================
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js").catch(() => {});
+        navigator.serviceWorker.register("./sw.js?v=" + APP_VERSION).catch(() => {});
       });
+    }
+
+    // ===================== TELEGRAM INIT (faster open / full height) =====================
+    const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+    try { if (tg) { tg.ready(); tg.expand(); } } catch (e) {}
+    // Telegram sets CSS vars --tg-viewport-height/--tg-viewport-stable-height
+    if (tg) {
+      const setH = () => {
+        document.documentElement.style.setProperty('--app-height', (tg.viewportHeight || window.innerHeight) + 'px');
+      };
+      setH();
+      tg.onEvent('viewportChanged', setH);
     }
 
     const urlParams = new URLSearchParams(window.location.search);
@@ -318,6 +342,66 @@
           updateDatalist("placeInput_list", mergeUnique(remoteCache.places, lsRead(LS_KEYS.PLACES)));
           updateDatalist("brandModelInput_list", mergeUnique(remoteCache.brand_models, lsRead(LS_KEYS.BRAND_MODELS)));
         }
+
+    // ===================== FAST LISTS (localStorage first, refresh in background) =====================
+    const LITE = (urlParams.get("lite") === "1");
+    const REMOTE_LISTS_TS_KEY = "avtolink_remote_lists_ts";
+    const REMOTE_LISTS_TTL_MS = 12 * 60 * 60 * 1000; // 12 часов
+
+    function lsReadNum(key, fallback = 0) {
+      const v = localStorage.getItem(key);
+      const n = parseInt(String(v || ""), 10);
+      return Number.isFinite(n) ? n : fallback;
+    }
+    function lsWriteNum(key, val) {
+      try { localStorage.setItem(key, String(val)); } catch (e) {}
+    }
+
+    function hydrateRemoteListsFromLS() {
+      try {
+        // моментально поднимаем из localStorage, чтобы форма открывалась быстрее
+        const vinsLS = lsRead(LS_KEYS.VINS, []);
+        const suppliersLS = lsRead(LS_KEYS.SUPPLIERS, []);
+        const placesLS = lsRead(LS_KEYS.PLACES, []);
+        const brandsLS = lsRead(LS_KEYS.BRANDS, []);
+
+        if (Array.isArray(vinsLS) && vinsLS.length) remoteCache.vins = mergeUnique(remoteCache.vins, vinsLS);
+        if (Array.isArray(suppliersLS) && suppliersLS.length) remoteCache.suppliers = mergeUnique(remoteCache.suppliers, suppliersLS);
+        if (Array.isArray(placesLS) && placesLS.length) remoteCache.places = mergeUnique(remoteCache.places, placesLS);
+        if (Array.isArray(brandsLS) && brandsLS.length) remoteCache.brand_models = mergeUnique(remoteCache.brand_models, brandsLS);
+
+        // обновляем datalist'ы (VIN — только по мере ввода, чтобы не грузить DOM)
+        updateDatalist("supplierInput", remoteCache.suppliers);
+        updateDatalist("purchasePlaceInput", remoteCache.places);
+        updateDatalist("brandModelInput", remoteCache.brand_models);
+
+        remoteListsLoaded = remoteListsLoaded || remoteCache.brand_models.length > 0 || remoteCache.vins.length > 0;
+      } catch (e) {}
+    }
+
+    function shouldRefreshRemoteLists() {
+      const ts = lsReadNum(REMOTE_LISTS_TS_KEY, 0);
+      return (!ts) || ((Date.now() - ts) > REMOTE_LISTS_TTL_MS);
+    }
+
+    function scheduleRemoteListsLoad() {
+      if (!canUseLookup()) return;
+      // сначала — мгновенно из localStorage
+      hydrateRemoteListsFromLS();
+
+      // если свежие — не дёргаем сеть каждый раз
+      if (!shouldRefreshRemoteLists()) return;
+
+      const runner = async () => {
+        try {
+          await remoteListsLoad();
+          lsWriteNum(REMOTE_LISTS_TS_KEY, Date.now());
+        } catch (e) {}
+      };
+
+      const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, LITE ? 700 : 80));
+      idle(runner);
+    }
       } catch (e) {
         console.warn("remoteListsLoad failed:", e);
       }
@@ -1213,33 +1297,32 @@ formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / М
 
 // ✅ Продажи: собственник НЕ добавляем (как вы просили)
       
+      
       if (formType === "sale_main") {
-        payload.manager = document.getElementById("managerInput").value;
+        payload.manager = document.getElementById("managerInput")?.value || "";
         payload.sale_date = getRuDate("saleDateInput");
-        payload.brand_model = document.getElementById("brandModelInput").value;
-        payload.vin = document.getElementById("vinInput").value;
-        payload.source = document.getElementById("leadSourceInput").value;
-        payload.buyer = document.getElementById("buyerInput").value;
-        payload.receiver = document.getElementById("receiverInput").value;
+        payload.brand_model = document.getElementById("brandModelInput")?.value || "";
+        payload.vin = document.getElementById("vinInput")?.value || "";
+        payload.source = document.getElementById("leadSourceInput")?.value || "";
+        payload.buyer = document.getElementById("buyerInput")?.value || "";
+        payload.receiver = document.getElementById("receiverInput")?.value || "";
 
-        payload.payment_type = document.getElementById("salePaymentTypeInput").value; // cash / cashless
-        payload.vat = (payload.payment_type === "cashless" && document.getElementById("saleVatInput").value === "yes") ? "да" : "нет";
-        payload.commission = (document.getElementById("saleCommissionInput").value === "yes") ? "да" : "нет";
-
+        // ✅ ТОЛЬКО один служебный ответ: вариант продажи (без "да/нет" в payload)
         const badgeEl = document.getElementById("saleVariantBadge");
         payload.variant = badgeEl ? String(badgeEl.textContent || "").replace("Вариант:", "").trim() : "";
 
-        payload.price_cash = document.getElementById("priceCashInput").value;
-        payload.price_cash_no_comm = document.getElementById("priceCashNoCommInput").value;
-        payload.manager_fee = document.getElementById("managerFeeInput").value;
+        // суммы (то, что реально относится к выбранному варианту)
+        payload.price_cash = document.getElementById("priceCashInput")?.value || "";
+        payload.price_no_commission = document.getElementById("priceCashNoCommInput")?.value || "";
+        payload.manager_fee = document.getElementById("managerFeeInput")?.value || "";
 
-        payload.price_cashless = document.getElementById("priceCashlessInput").value;
-        payload.price_nds = document.getElementById("priceNdsInput").value;
-        payload.markup_nds = document.getElementById("markupNdsInput").value;
+        payload.price_cashless = document.getElementById("priceCashlessInput")?.value || "";
+        payload.price_nds = document.getElementById("priceNdsInput")?.value || "";
+        payload.markup_nds = document.getElementById("markupNdsInput")?.value || "";
 
-        payload.contract_price = document.getElementById("contractPriceInput").value;
-        payload.broker_price = document.getElementById("brokerPriceInput").value;
-        payload.broker_expense = document.getElementById("brokerExpenseInput").value;
+        payload.contract_price = document.getElementById("contractPriceInput")?.value || "";
+        payload.broker_price = document.getElementById("brokerPriceInput")?.value || "";
+        payload.broker_expense = document.getElementById("brokerExpenseInput")?.value || "";
 
         return payload;
       }
@@ -1383,50 +1466,178 @@ if (formType === "sale_nds_broker") {
       submitBtn.disabled = false;
     }
 
+
+    // ===================== UX AUTO (быстрее ввод + можно править вручную) =====================
+    function jsParseNum(v) {
+      if (v === null || v === undefined) return 0;
+      const s = String(v).replace(/\s/g, "").replace(",", ".").replace(/[^\d.\-]/g, "");
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function tgUserFullName() {
+      try {
+        const u = window.Telegram?.WebApp?.initDataUnsafe?.user;
+        if (!u) return "";
+        return [u.first_name, u.last_name].filter(Boolean).join(" ").trim() || (u.username ? "@" + u.username : "");
+      } catch (e) { return ""; }
+    }
+
+    function rememberField(id, lsKey, fallback = "") {
+      const el = document.getElementById(id);
+      if (!el) return;
+      try {
+        const saved = localStorage.getItem(lsKey);
+        if (!el.value && saved) el.value = saved;
+        if (!el.value && fallback) el.value = fallback;
+      } catch (e) {}
+      el.addEventListener("input", () => {
+        try { localStorage.setItem(lsKey, el.value || ""); } catch (e) {}
+      });
+    }
+
+    function insertToggleAfterInput(inputId, toggleId, labelText, hintText, checkedByDefault = true) {
+      const input = document.getElementById(inputId);
+      if (!input) return null;
+      if (document.getElementById(toggleId)) return document.getElementById(toggleId);
+      const field = input.closest(".field") || input.parentElement;
+      if (!field || !field.parentElement) return null;
+
+      const row = document.createElement("div");
+      row.className = "field";
+      row.innerHTML = `
+        <div class="toggle-row">
+          <input type="checkbox" id="${toggleId}" ${checkedByDefault ? "checked" : ""}/>
+          <div>
+            <div>${labelText}</div>
+            ${hintText ? `<small>${hintText}</small>` : ``}
+          </div>
+        </div>
+      `;
+      field.parentElement.insertBefore(row, field.nextSibling);
+      return document.getElementById(toggleId);
+    }
+
+    function postRenderEnhancements() {
+      // менеджер: автоподставляем из Telegram + запоминаем (можно переписать)
+      rememberField("managerInput", "avtolink_last_manager", tgUserFullName());
+
+      // источник/получатель/плательщик — запоминаем для ускорения
+      rememberField("leadSourceInput", "avtolink_last_source", "");
+      rememberField("receiverInput", "avtolink_last_receiver", "");
+      rememberField("purchaserInput", "avtolink_last_purchaser", "");
+
+      // --- Автоподстановка Марка/Модель по VIN (если есть LOOKUP_API_URL) ---
+      const vinEl = document.getElementById("vinInput");
+      const brandEl = document.getElementById("brandModelInput");
+      if (vinEl && brandEl) {
+        const t = insertToggleAfterInput("vinInput", "autoVinFillToggle",
+          "Автоподстановка «Марка / Модель» по VIN",
+          "Если выключить — вводите вручную. Если включить — попробуем подтянуть по VIN."
+        , true);
+
+        let manualBrand = false;
+        brandEl.addEventListener("input", () => { manualBrand = true; });
+
+        let timer = null;
+        const run = async () => {
+          if (!t || !t.checked) return;
+          if (!canUseLookup()) return;
+          const v = String(vinEl.value || "").trim();
+          if (!v || v.length < 4) return;
+
+          // если пользователь уже руками ввёл марку/модель — не перезатираем
+          if (manualBrand && brandEl.value) return;
+
+          try {
+            const data = await lookupByVin(v);
+            const bm = data?.brand_model || data?.brandModel || "";
+            if (bm) {
+              brandEl.value = bm;
+              manualBrand = false;
+            }
+          } catch (e) {}
+        };
+
+        const schedule = () => {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(run, 350);
+        };
+
+        vinEl.addEventListener("blur", schedule);
+        vinEl.addEventListener("change", schedule);
+      }
+
+      // --- Авторасчёт дохода (Доп. услуги): Доход = Цена продажи - Цена покупки ---
+      const priceEl = document.getElementById("priceInput");
+      const buyEl = document.getElementById("buyPriceInput");
+      const profitEl = document.getElementById("profitInput");
+      if (priceEl && buyEl && profitEl) {
+        const t = insertToggleAfterInput("profitInput", "autoProfitToggle",
+          "Авторасчёт дохода",
+          "Доход = Цена продажи − Цена покупки (можно поправить вручную).",
+          true
+        );
+
+        const recalc = () => {
+          if (!t || !t.checked) return;
+          if (profitEl.dataset.manual === "1") return;
+          const p = jsParseNum(priceEl.value);
+          const b = jsParseNum(buyEl.value);
+          if (!p && !b) return;
+          const diff = p - b;
+          if (!profitEl.value || profitEl.dataset.auto === "1") {
+            profitEl.value = String(Math.round(diff));
+            profitEl.dataset.auto = "1";
+          }
+        };
+
+        profitEl.addEventListener("input", () => { profitEl.dataset.manual = "1"; });
+        priceEl.addEventListener("input", recalc);
+        buyEl.addEventListener("input", recalc);
+        recalc();
+      }
+
+      // --- Авторасчёт комиссии менеджера (Основная продажа, нал с комиссией) ---
+      const cashEl = document.getElementById("priceCashInput");
+      const noCommEl = document.getElementById("priceCashNoCommInput");
+      const feeEl = document.getElementById("managerFeeInput");
+      if (cashEl && noCommEl && feeEl) {
+        const t = insertToggleAfterInput("managerFeeInput", "autoFeeToggle",
+          "Авторасчёт комиссии менеджера",
+          "Комиссия = Цена (нал) − Цена без комиссии (можно переписать).",
+          true
+        );
+
+        const recalc = () => {
+          if (!t || !t.checked) return;
+          if (feeEl.dataset.manual === "1") return;
+          const a = jsParseNum(cashEl.value);
+          const b = jsParseNum(noCommEl.value);
+          if (!a || !b) return;
+          const diff = a - b;
+          if (!feeEl.value || feeEl.dataset.auto === "1") {
+            feeEl.value = String(Math.round(diff));
+            feeEl.dataset.auto = "1";
+          }
+        };
+
+        feeEl.addEventListener("input", () => { feeEl.dataset.manual = "1"; });
+        cashEl.addEventListener("input", recalc);
+        noCommEl.addEventListener("input", recalc);
+      }
+    }
+
     renderForm();
 
-    // Подгрузим списки и автоподтягивание по VIN (если настроен LOOKUP_API_URL)
-    remoteListsLoad();
+    // Улучшения: автоподстановка/запоминание значений и фоновая подгрузка списков
+    postRenderEnhancements();
+    scheduleRemoteListsLoad();
 
     // ===================== COLLECT DATA =====================
 
     function collectFormData() {
       const payload = { formType };
-
-      
-      const val = (id) => { const el = document.getElementById(id); return el ? el.value : ""; };
-
-      // ===== Основная продажа (единая форма) =====
-      if (formType === "sale_main") {
-        payload.manager = val("managerInput");
-        payload.sale_date = getRuDate("saleDateInput");
-        payload.brand_model = val("brandModelInput");
-        payload.vin = val("vinInput");
-        payload.source = val("leadSourceInput");
-
-        payload.payment_type = val("salePaymentTypeInput"); // cash / cashless
-        payload.vat = (payload.payment_type === "cashless" && val("saleVatInput") === "yes") ? "да" : "нет";
-        payload.commission = (val("saleCommissionInput") === "yes") ? "да" : "нет";
-
-        const badgeEl = document.getElementById("saleVariantBadge");
-        payload.variant = badgeEl ? String(badgeEl.textContent || "").replace("Вариант:", "").trim() : "";
-
-        payload.price_cash = val("priceCashInput");
-        payload.price_no_commission = val("priceCashNoCommInput");
-        payload.manager_fee = val("managerFeeInput");
-
-        payload.price_cashless = val("priceCashlessInput");
-        payload.price_nds = val("priceNdsInput");
-        payload.markup_nds = val("markupNdsInput");
-        payload.contract_price = val("contractPriceInput");
-        payload.broker_price = val("brokerPriceInput");
-        payload.broker_expense = val("brokerExpenseInput");
-
-        payload.receiver = val("receiverInput");
-        payload.buyer = val("buyerInput");
-
-        return payload;
-      }
 
       if (formType === "mgr_stock") {
         payload.deal_type = document.getElementById("dealTypeInput").value;
