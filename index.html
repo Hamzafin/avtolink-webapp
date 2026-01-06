@@ -134,7 +134,7 @@
     // ===================== SERVICE WORKER (GitHub Pages cache) =====================
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js").catch(() => {});
+        navigator.serviceWorker.register("./sw.js?v=" + encodeURIComponent(APP_VERSION)).catch(() => {});
       });
     }
 
@@ -146,6 +146,7 @@
       try { TG.expand(); } catch(e) {}
     }
 const urlParams = new URLSearchParams(window.location.search);
+    const APP_VERSION = urlParams.get("v") || "10";
     const formType = urlParams.get("type") || "unknown";
 
     const ENABLE_SUFFIX_LOOKUP = (formType === "boss_buy");
@@ -332,7 +333,9 @@ const urlParams = new URLSearchParams(window.location.search);
 
     subtitleEl.textContent =
       "Форма: " + (FORM_TITLES[formType] || formType) +
-      (categoryFromUrl ? " | Категория: " + categoryFromUrl : "");
+      (categoryFromUrl ? " | Категория: " + categoryFromUrl : "") +
+      " | v" + APP_VERSION;
+
 
     function todayISO() {
       return new Date().toISOString().slice(0, 10);
@@ -860,32 +863,6 @@ const urlParams = new URLSearchParams(window.location.search);
       input.addEventListener("focus", () => fill(input.value));
       input.addEventListener("input", () => fill(input.value));
     }
-
-    // ---------- MULTI OWNER (Сток) ----------
-    function createMultiOwnerInput(options = []) {
-      const wrapper = document.createElement("div");
-      wrapper.className = "field";
-
-      const label = document.createElement("label");
-      label.textContent = "Собственники (можно несколько)";
-      wrapper.appendChild(label);
-
-      const hint = document.createElement("div");
-      hint.className = "hint";
-      hint.textContent = "Каждый собственник — отдельной строкой. В таблицу уйдёт в одну ячейку «в столбик».";
-      wrapper.appendChild(hint);
-
-      const container = document.createElement("div");
-      container.id = "ownersContainer";
-      wrapper.appendChild(container);
-
-      const datalistId = "owners_list";
-      let datalist = document.getElementById(datalistId);
-      if (!datalist) {
-        datalist = document.createElement("datalist");
-        datalist.id = datalistId;
-        document.body.appendChild(datalist);
-      }
       datalist.innerHTML = "";
       options.forEach((opt) => {
         const o = document.createElement("option");
