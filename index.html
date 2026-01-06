@@ -1400,9 +1400,10 @@
 
     // ---------- Submit ----------
     submitBtn.addEventListener("click", () => {
-      if (!tg) {
-        tgAlert("Открой форму через кнопку в Telegram-боте.");
-        return;
+    const tg = window.Telegram?.WebApp;   // <-- берём актуально в момент клика
+    if (!tg) {
+    alert("Открой форму через кнопку в Telegram-боте.");
+    return;
       }
 
       const payload = collectFormData();
@@ -1431,4 +1432,5 @@
   </script>
 </body>
 </html>
+
 
