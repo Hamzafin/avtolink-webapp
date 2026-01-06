@@ -101,7 +101,7 @@
     const formType = urlParams.get("type") || "unknown";
 
     // Версию берём из ?v= (её добавляет Python build_webapp_url). Это важно для обновления SW/кэша.
-    const APP_VERSION = urlParams.get("v") || "1";
+    const APP_VERSION = urlParams.get("v") || "5";
 
     // ---------- Service Worker ----------
     if ("serviceWorker" in navigator) {
@@ -1432,5 +1432,6 @@
   </script>
 </body>
 </html>
+
 
 
