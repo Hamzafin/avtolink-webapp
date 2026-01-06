@@ -1,42 +1,45 @@
 /* Telegram WebApp cache (GitHub Pages) */
-const CACHE_NAME = "avtolink-webapp-cache-v4";
+const SW_VERSION = new URL(self.location.href).searchParams.get("v") || "1";
+const CACHE_NAME = "avtolink-webapp-cache-v" + SW_VERSION;
+
+const CORE = ["./", "./index.html"]; // sw.js сам кэшировать не обязательно
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) =>
-      cache.addAll(["./", "./index.html", "./sw.js"])
-    )
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      // reload — чтобы GitHub Pages не отдал старое из HTTP cache
+      await cache.addAll(CORE.map((u) => new Request(u, { cache: "reload" })));
+    })()
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys()
-      .then((keys) =>
-        Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-      )
-      .then(() => self.clients.claim())
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)));
+      await self.clients.claim();
+    })()
   );
 });
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
 
-  // HTML навигации: stale-while-revalidate (быстро открываем из cache, обновляем в фоне)
+  // Не трогаем не-GET
+  if (req.method !== "GET") return;
+
+  // HTML навигации: stale-while-revalidate
   if (req.mode === "navigate") {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
-
-      // Всегда отдаём index.html (у нас single-page)
       const cached = await cache.match("./index.html", { ignoreSearch: true });
 
-      // В фоне обновим кэш
       const fetchPromise = fetch(req)
         .then((res) => {
-          if (res && res.ok) {
-            cache.put("./index.html", res.clone());
-          }
+          if (res && res.ok) cache.put("./index.html", res.clone());
           return res;
         })
         .catch(() => null);
@@ -48,18 +51,20 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(req.url);
 
-  // Для same-origin: stale-while-revalidate
+  // same-origin: stale-while-revalidate
   if (url.origin === self.location.origin) {
-    event.respondWith(
-      caches.match(req).then((cached) => {
-        const fetchPromise = fetch(req)
-          .then((res) => {
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, res.clone()));
-            return res;
-          })
-          .catch(() => cached);
-        return cached || fetchPromise;
-      })
-    );
+    event.respondWith((async () => {
+      const cache = await caches.open(CACHE_NAME);
+      const cached = await cache.match(req, { ignoreSearch: true });
+
+      const fetchPromise = fetch(req)
+        .then((res) => {
+          if (res && res.ok) cache.put(req, res.clone());
+          return res;
+        })
+        .catch(() => cached);
+
+      return cached || fetchPromise;
+    })());
   }
 });
