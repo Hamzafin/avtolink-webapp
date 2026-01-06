@@ -120,9 +120,18 @@
       white-space: nowrap;
     }
     .mini-btn:active { transform: translateY(1px); }
-  </style>
+  
+      /* Telegram viewport height fix */
+      html, body { height: 100%; }
+      body { min-height: var(--app-height, 100vh); }
+</style>
 </head>
 <body>
+
+  <button id="tgFullscreenBtn" class="pill" style="position:fixed;right:12px;top:12px;z-index:9999;display:none;cursor:pointer;">
+    ⛶ На весь экран
+  </button>
+
   <h1>Автолинк</h1>
   <div class="subtitle" id="subtitle"></div>
 
@@ -130,173 +139,46 @@
   <button id="submitBtn" disabled>Отправить в бота</button>
 
   <script>
+    // --- Telegram Mini App init (разворачиваем окно) ---
+    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+    (function initTelegramWebApp() {
+      if (!tg) return;
+      try { tg.ready(); } catch(e) {}
+      try { tg.expand(); } catch(e) {} // максимально по высоте BottomSheet
+
+      // Помогаем верстке подстраиваться под реальную высоту WebView
+      const applyAppHeight = () => {
+        const h = (tg.viewportStableHeight || tg.viewportHeight || window.innerHeight);
+        document.documentElement.style.setProperty("--app-height", h + "px");
+      };
+      applyAppHeight();
+
+      // обновляем после жестов
+      if (tg.onEvent) {
+        tg.onEvent("viewportChanged", (e) => {
+          if (!e || e.isStateStable) applyAppHeight();
+        });
+      }
+
+      // (опционально) полноэкранный режим поддерживается не везде:
+      // requestFullscreen можно вызывать только после пользовательского действия.
+      // Поэтому оставляем это на кнопку в интерфейсе (см. ниже).
+    })();
+
 
     // ===================== SERVICE WORKER (GitHub Pages cache) =====================
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js?v=" + encodeURIComponent(APP_VERSION)).catch(() => {});
+        navigator.serviceWorker.register("./sw.js").catch(() => {});
       });
     }
 
-    
-    // ===================== TELEGRAM WEBAPP FULLSCREEN =====================
-    const TG = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
-    if (TG) {
-      try { TG.ready(); } catch(e) {}
-      try { TG.expand(); } catch(e) {}
-    }
-const urlParams = new URLSearchParams(window.location.search);
-    const APP_VERSION = urlParams.get("v") || "10";
+    const urlParams = new URLSearchParams(window.location.search);
     const formType = urlParams.get("type") || "unknown";
 
     const ENABLE_SUFFIX_LOOKUP = (formType === "boss_buy");
 
     const categoryFromUrl = urlParams.get("category") || "";
-
-    // ===================== TG USER PREFILL =====================
-    const LS_KEYS2 = { LAST_MANAGER: "avtolink_last_manager_v1", MANUAL_BM: "avtolink_manual_brandmodel_v1" };
-
-    function getTgDisplayName() {
-      try {
-        const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
-        const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user : null;
-        if (!u) return "";
-        const name = [u.first_name, u.last_name].filter(Boolean).join(" ").trim();
-        return name || (u.username ? ("@" + u.username) : "");
-      } catch(e) {
-        return "";
-      }
-    }
-
-    function prefillManager(inputId) {
-      const el = document.getElementById(inputId);
-      if (!el) return;
-      // если уже есть значение — не трогаем
-      if (String(el.value || "").trim()) return;
-
-      // 1) Telegram user
-      const tgName = getTgDisplayName();
-      if (tgName) {
-        el.value = tgName;
-        try { localStorage.setItem(LS_KEYS2.LAST_MANAGER, tgName); } catch(e) {}
-        return;
-      }
-      // 2) localStorage
-      try {
-        const last = localStorage.getItem(LS_KEYS2.LAST_MANAGER) || "";
-        if (last) el.value = last;
-      } catch(e) {}
-    }
-
-    function bindManagerRemember(inputId) {
-      const el = document.getElementById(inputId);
-      if (!el) return;
-      if (el.dataset && el.dataset.remember === "1") return;
-      if (el.dataset) el.dataset.remember = "1";
-      el.addEventListener("input", () => {
-        const v = String(el.value || "").trim();
-        if (!v) return;
-        try { localStorage.setItem(LS_KEYS2.LAST_MANAGER, v); } catch(e) {}
-      });
-    }
-
-    // ===================== VIN -> BRAND/MODEL AUTOFILL (silent) =====================
-    function bindBrandModelDirty(brandModelId) {
-      const bm = document.getElementById(brandModelId);
-      if (!bm) return;
-      if (bm.dataset && bm.dataset.dirtyBound === "1") return;
-      if (bm.dataset) bm.dataset.dirtyBound = "1";
-      bm.addEventListener("input", () => { bm.dataset.userDirty = "1"; });
-    }
-
-    async function tryAutofillBrandModelByVin(vinId, brandModelId) {
-      const vinEl = document.getElementById(vinId);
-      const bmEl = document.getElementById(brandModelId);
-      if (!vinEl || !bmEl) return;
-
-      // если пользователь уже вручную менял марку/модель — не перетираем
-      const dirty = (bmEl.dataset && bmEl.dataset.userDirty === "1");
-      if (dirty) return;
-
-      const vin = normalizeVin(vinEl.value);
-      if (!vin) return;
-
-      const data = await lookupByVin(vin);
-      if (!data || !data.brand_model) return;
-
-      // ставим только если поле пустое или совпадает с тем, что уже было (на случай пробелов)
-      if (!String(bmEl.value || "").trim()) {
-        bmEl.value = String(data.brand_model);
-      }
-    }
-
-    function bindVinBrandAutofill(vinId, brandModelId) {
-      const vinEl = document.getElementById(vinId);
-      const bmEl = document.getElementById(brandModelId);
-      if (!vinEl || !bmEl) return;
-
-      if (vinEl.dataset && vinEl.dataset.bmAuto === "1") return;
-      if (vinEl.dataset) vinEl.dataset.bmAuto = "1";
-
-      bindBrandModelDirty(brandModelId);
-
-      let t = null;
-      const debounced = () => {
-        if (t) clearTimeout(t);
-        t = setTimeout(() => { tryAutofillBrandModelByVin(vinId, brandModelId); }, 450);
-      };
-
-      vinEl.addEventListener("input", debounced);
-      vinEl.addEventListener("change", debounced);
-      vinEl.addEventListener("blur", debounced);
-    }
-
-    // ===================== STABLE CALCS =====================
-    function parseNum(v) {
-      const s = String(v || "").replace(/\s+/g, "").replace(",", ".").replace(/[₽$¥рР]/g, "");
-      const n = parseFloat(s);
-      return Number.isFinite(n) ? n : 0;
-    }
-    function fmtNum(n) {
-      try { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " "); } catch(e) { return String(n); }
-    }
-    function bindAutoDiff(outId, aId, bId) {
-      const out = document.getElementById(outId);
-      const a = document.getElementById(aId);
-      const b = document.getElementById(bId);
-      if (!out || !a || !b) return;
-
-      if (out.dataset && out.dataset.autoDiff === "1") return;
-      if (out.dataset) out.dataset.autoDiff = "1";
-
-      out.addEventListener("input", () => { out.dataset.userDirty = "1"; });
-
-      const recalc = () => {
-        // если пользователь вручную заполнил — не перетираем, пока не очистит
-        if (out.dataset && out.dataset.userDirty === "1" && String(out.value || "").trim()) return;
-        const n = parseNum(a.value) - parseNum(b.value);
-        if (!Number.isFinite(n)) return;
-        // пишем только если есть хотя бы одно число
-        if (parseNum(a.value) === 0 && parseNum(b.value) === 0) return;
-        out.value = fmtNum(n);
-      };
-
-      const onAny = () => {
-        // если поле очищено — разрешаем авто снова
-        if (!String(out.value || "").trim()) {
-          if (out.dataset) out.dataset.userDirty = "0";
-        }
-        recalc();
-      };
-
-      a.addEventListener("input", onAny);
-      b.addEventListener("input", onAny);
-      a.addEventListener("change", onAny);
-      b.addEventListener("change", onAny);
-
-      // первый пересчет
-      setTimeout(recalc, 0);
-    }
     const brandsParam = urlParams.get("brands") || "";
     const investorsParam = urlParams.get("investors") || "";
     const sourcesParam = urlParams.get("sources") || "";
@@ -333,9 +215,7 @@ const urlParams = new URLSearchParams(window.location.search);
 
     subtitleEl.textContent =
       "Форма: " + (FORM_TITLES[formType] || formType) +
-      (categoryFromUrl ? " | Категория: " + categoryFromUrl : "") +
-      " | v" + APP_VERSION;
-
+      (categoryFromUrl ? " | Категория: " + categoryFromUrl : "");
 
     function todayISO() {
       return new Date().toISOString().slice(0, 10);
@@ -863,6 +743,32 @@ const urlParams = new URLSearchParams(window.location.search);
       input.addEventListener("focus", () => fill(input.value));
       input.addEventListener("input", () => fill(input.value));
     }
+
+    // ---------- MULTI OWNER (Сток) ----------
+    function createMultiOwnerInput(options = []) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "field";
+
+      const label = document.createElement("label");
+      label.textContent = "Собственники (можно несколько)";
+      wrapper.appendChild(label);
+
+      const hint = document.createElement("div");
+      hint.className = "hint";
+      hint.textContent = "Каждый собственник — отдельной строкой. В таблицу уйдёт в одну ячейку «в столбик».";
+      wrapper.appendChild(hint);
+
+      const container = document.createElement("div");
+      container.id = "ownersContainer";
+      wrapper.appendChild(container);
+
+      const datalistId = "owners_list";
+      let datalist = document.getElementById(datalistId);
+      if (!datalist) {
+        datalist = document.createElement("datalist");
+        datalist.id = datalistId;
+        document.body.appendChild(datalist);
+      }
       datalist.innerHTML = "";
       options.forEach((opt) => {
         const o = document.createElement("option");
@@ -1201,9 +1107,6 @@ const urlParams = new URLSearchParams(window.location.search);
 
       // --- общие поля ---
       formCard.appendChild(createInput("managerInput", "Менеджер", "Имя менеджера"));
-      prefillManager("managerInput");
-      bindManagerRemember("managerInput");
-
       formCard.appendChild(createInput("saleDateInput", "Дата продажи", "", todayISO(), "date"));
       formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "", brands));
       formCard.appendChild(createInput("vinInput", "VIN (можно последние 4 символа)", "Последние 4 или полный VIN"));
@@ -1306,10 +1209,7 @@ const urlParams = new URLSearchParams(window.location.search);
       document.getElementById("saleCommissionInput").addEventListener("change", updateSaleMainVisibility);
 
       updateSaleMainVisibility();
-      // стабильный автоподсчёт комиссии менеджера (если поле не заполнено вручную)
-      bindAutoDiff("managerFeeInput", "priceCashInput", "priceCashNoCommInput");
       setupVinAutocompleteSmart("vinInput", getAllVins);
-        bindVinBrandAutofill("vinInput", "brandModelInput");
 
       submitBtn.disabled = false;
     }
@@ -1337,7 +1237,6 @@ formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / М
         formCard.appendChild(createInput("clientInput", "Клиент (Имя + телефон)", "Иван Иванов, +7..."));
 
         setupVinAutocompleteSmart("vinInput", getAllVins);
-        bindVinBrandAutofill("vinInput", "brandModelInput");
         submitBtn.disabled = false;
         return;
       }
@@ -1358,11 +1257,15 @@ formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / М
         payload.buyer = document.getElementById("buyerInput").value;
         payload.receiver = document.getElementById("receiverInput").value;
 
+        payload.payment_type = document.getElementById("salePaymentTypeInput").value; // cash / cashless
+        payload.vat = (payload.payment_type === "cashless" && document.getElementById("saleVatInput").value === "yes") ? "да" : "нет";
+        payload.commission = (document.getElementById("saleCommissionInput").value === "yes") ? "да" : "нет";
+
         const badgeEl = document.getElementById("saleVariantBadge");
         payload.variant = badgeEl ? String(badgeEl.textContent || "").replace("Вариант:", "").trim() : "";
 
         payload.price_cash = document.getElementById("priceCashInput").value;
-        payload.price_no_commission = document.getElementById("priceCashNoCommInput").value;
+        payload.price_cash_no_comm = document.getElementById("priceCashNoCommInput").value;
         payload.manager_fee = document.getElementById("managerFeeInput").value;
 
         payload.price_cashless = document.getElementById("priceCashlessInput").value;
@@ -1378,9 +1281,6 @@ formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / М
 
 if (formType === "sale_nds_broker") {
         formCard.appendChild(createInput("managerInput", "Менеджер", "Имя менеджера"));
-      prefillManager("managerInput");
-      bindManagerRemember("managerInput");
-
         formCard.appendChild(createInput("saleDateInput", "Дата продажи", "", todayISO(), "date"));
         formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "", brands));
         formCard.appendChild(createInput("vinInput", "VIN (можно последние 4 символа)", "Последние 4 или полный VIN"));
@@ -1398,8 +1298,6 @@ if (formType === "sale_nds_broker") {
 
       if (formType === "sale_nds_no_broker") {
         formCard.appendChild(createInput("managerInput", "Менеджер", ""));
-        prefillManager("managerInput");
-        bindManagerRemember("managerInput");
         formCard.appendChild(createInput("saleDateInput", "Дата продажи", "", todayISO(), "date"));
         formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "", brands));
         formCard.appendChild(createInput("vinInput", "VIN (можно последние 4 символа)", "Последние 4 или полный VIN"));
@@ -1415,8 +1313,6 @@ if (formType === "sale_nds_broker") {
 
       if (formType === "sale_cash") {
         formCard.appendChild(createInput("managerInput", "Менеджер", ""));
-        prefillManager("managerInput");
-        bindManagerRemember("managerInput");
         formCard.appendChild(createInput("saleDateInput", "Дата продажи", "", todayISO(), "date"));
         formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "", brands));
         formCard.appendChild(createInput("vinInput", "VIN (можно последние 4 символа)", "Последние 4 или полный VIN"));
@@ -1456,7 +1352,6 @@ if (formType === "sale_nds_broker") {
         formCard.appendChild(createInput("priceInput", "Цена продажи", ""));
         formCard.appendChild(createInput("buyerInput", "Покупатель", ""));
         setupVinAutocompleteSmart("vinInput", getAllVins);
-        bindVinBrandAutofill("vinInput", "brandModelInput");
         submitBtn.disabled = false;
         return;
       }
@@ -1473,10 +1368,7 @@ if (formType === "sale_nds_broker") {
         formCard.appendChild(createInput("purchaserInput", "Кто выдал средства на закупку", ""));
         formCard.appendChild(createInput("buyPriceInput", "Цена покупки", ""));
         formCard.appendChild(createInput("profitInput", "Доход", ""));
-        // стабильный автоподсчёт дохода (если поле не заполнено вручную)
-        bindAutoDiff("profitInput", "priceInput", "buyPriceInput");
         setupVinAutocompleteSmart("vinInput", getAllVins);
-        bindVinBrandAutofill("vinInput", "brandModelInput");
         submitBtn.disabled = false;
         return;
       }
@@ -1495,7 +1387,6 @@ if (formType === "sale_nds_broker") {
         formCard.appendChild(createTextarea("extraExpensesInput", "Доп. расходы", "Если есть: строками (например: Шиномонтаж: 3000)"));
         formCard.appendChild(createTextarea("commentInput", "Комментарий", ""));
         setupVinAutocompleteSmart("vinInput", getAllVins);
-        bindVinBrandAutofill("vinInput", "brandModelInput");
         submitBtn.disabled = false;
         return;
       }
@@ -1536,6 +1427,49 @@ if (formType === "sale_nds_broker") {
 
     function collectFormData() {
       const payload = { formType };
+
+      
+      const val = (id) => { const el = document.getElementById(id); return el ? el.value : ""; };
+
+      // ===== Основная продажа (единая форма) =====
+      if (formType === "sale_main") {
+        payload.manager = document.getElementById("managerInput").value;
+        payload.sale_date = getRuDate("saleDateInput");
+        payload.brand_model = document.getElementById("brandModelInput").value;
+        payload.vin = document.getElementById("vinInput").value;
+        payload.source = document.getElementById("leadSourceInput").value;
+        payload.receiver = document.getElementById("receiverInput").value;
+        payload.buyer = document.getElementById("buyerInput").value;
+
+        // Оставляем только итоговый "Вариант продажи" (а не три отдельных флага)
+        const badgeEl = document.getElementById("saleVariantBadge");
+        payload.variant = badgeEl ? String(badgeEl.textContent || "").replace("Вариант:", "").trim() : "";
+
+        // Нал
+        const cashPrice = document.getElementById("priceCashInput").value;
+        const cashNoComm = document.getElementById("priceCashNoCommInput").value;
+        const mgrFee = document.getElementById("managerFeeInput").value;
+        payload.price_cash = cashPrice;
+        payload.price = cashPrice; // для совместимости (если где-то использовалась "price")
+        payload.price_no_commission = cashNoComm;
+        payload.manager_fee = mgrFee;
+
+        // Безнал
+        const priceCashless = document.getElementById("priceCashlessInput").value; // без НДС
+        const priceNds = document.getElementById("priceNdsInput").value;
+        const markupNds = document.getElementById("markupNdsInput").value;
+
+        // Если без НДС — пишем сумму в "Цена в договоре"
+        const contract = document.getElementById("contractPriceInput").value || priceCashless;
+
+        payload.price_nds = priceNds;
+        payload.markup_nds = markupNds;
+        payload.contract_price = contract;
+        payload.broker_price = document.getElementById("brokerPriceInput").value;
+        payload.broker_expense = document.getElementById("brokerExpenseInput").value;
+
+        return payload;
+      }
 
       if (formType === "mgr_stock") {
         payload.deal_type = document.getElementById("dealTypeInput").value;
