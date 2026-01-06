@@ -1,6 +1,6 @@
 /* Telegram WebApp cache (GitHub Pages) */
 const SW_VERSION = new URL(self.location.href).searchParams.get("v") || "1";
-const CACHE_NAME = "avtolink-webapp-cache-v" + SW_VERSION;
+const CACHE_NAME = "avtolink-webapp-cache-v5" + SW_VERSION;
 
 const CORE = ["./", "./index.html"]; // sw.js сам кэшировать не обязательно
 
