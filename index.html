@@ -168,6 +168,36 @@
       boss_invest_out: "Инвестиции — вывод",
     };
 
+    // --- sale aliases (чтобы старые типы продаж тоже открывали sale_main UI)
+function isSaleMainLike(t) {
+  return ["sale_main","sale_nds_broker","sale_nds_no_broker","sale_cash","sale_cash_broker"].includes(String(t||""));
+}
+
+// дефолты для старых типов (если вдруг бот ещё шлёт их)
+function applySalePresetByType(t) {
+  const pay = document.getElementById("salePaymentTypeInput");
+  const vat = document.getElementById("saleVatInput");
+  const comm = document.getElementById("saleCommissionInput");
+  if (!pay || !vat || !comm) return;
+
+  const type = String(t || "");
+
+  // базовые
+  pay.value = "cash";
+  vat.value = "no";
+  comm.value = "no";
+
+  if (type === "sale_cash") {
+    pay.value = "cash"; vat.value = "no"; comm.value = "no";
+  } else if (type === "sale_cash_broker") {
+    pay.value = "cash"; vat.value = "no"; comm.value = "yes";
+  } else if (type === "sale_nds_no_broker") {
+    pay.value = "cashless"; vat.value = "yes"; comm.value = "no";
+  } else if (type === "sale_nds_broker") {
+    pay.value = "cashless"; vat.value = "yes"; comm.value = "yes";
+  }
+}
+
     subtitleEl.textContent =
       "Форма: " + (FORM_TITLES[formType] || formType) +
       (categoryFromUrl ? " | Категория: " + categoryFromUrl : "");
@@ -932,9 +962,7 @@
         if (badgeEl) badgeEl.textContent = "Вариант: " + variant;
       }
 
-      document.getElementById("salePaymentTypeInput").value = "cash";
-      document.getElementById("saleVatInput").value = "no";
-      document.getElementById("saleCommissionInput").value = "no";
+      applySalePresetByType(formType);
 
       document.getElementById("salePaymentTypeInput").addEventListener("change", updateSaleMainVisibility);
       document.getElementById("saleVatInput").addEventListener("change", updateSaleMainVisibility);
@@ -974,7 +1002,7 @@
         return;
       }
 
-      if (formType === "sale_main") { renderSaleMain(); return; }
+      if (isSaleMainLike(formType)) { renderSaleMain(); return; }
 
       if (formType === "sale_deposit") {
         formCard.appendChild(createInput("managerInput", "Менеджер", ""));
@@ -1276,9 +1304,10 @@
         return payload;
       }
 
-      if (formType === "sale_main") {
-        return collectSaleMain();
+      if (isSaleMainLike(formType)) {
+       return collectSaleMain();
       }
+
 
       if (formType === "sale_deposit") {
         payload.manager = document.getElementById("managerInput").value;
@@ -1432,6 +1461,7 @@
   </script>
 </body>
 </html>
+
 
 
 
