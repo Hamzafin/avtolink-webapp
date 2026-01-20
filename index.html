@@ -450,18 +450,24 @@
     input.addEventListener("input", () => fill(input.value));
   }
 
-  // ---------- Apps Script (2 URL) ----------
+  // ---------- Apps Script (3 URL) ----------
   const LOOKUP_API_URL_BOSS =
     "https://script.google.com/macros/s/AKfycbzuBwFkGUiXnJcwUeTSt5jP8Y1BdE8PD0MQO_0SH6hr74O2htidfhD3Oop5zZ80G-GlDw/exec";
 
   const LOOKUP_API_URL_REF =
     "https://script.google.com/macros/s/AKfycbx_JDoOiJ_yTGiTyY16aIkNFSOjNelz40UiUbvVCdWq0wbsBpbTC5_0vZNga_ImSJ54MQ/exec";
 
+  const LOOKUP_API_URL_RF_EXPENSE = "https://script.google.com/macros/s/AKfycbz-f23gebbose-v_t2iqFeX-7UeoKg1-JUU1fhPCdk2GqM0Dmk1bIDZJoHUVD_Q7bMHAA/exec";
+
+
   const LOOKUP_API_TOKEN = ""; // если включишь проверку токена в Code.gs
 
-  function getLookupUrlByForm() {
-    return (formType === "boss_buy") ? LOOKUP_API_URL_BOSS : LOOKUP_API_URL_REF;
+  function getLookupUrl() {
+    if (formType === "boss_buy") return LOOKUP_API_URL_BOSS;
+    if (formType === "fin_company_expense") return LOOKUP_API_URL_RF_EXPENSE;
+    return LOOKUP_API_URL_REF;
   }
+
   function canUseLookup() {
     const u = getLookupUrlByForm();
     return typeof u === "string" && u.trim().startsWith("https://");
@@ -566,6 +572,8 @@
         // boss lists
         remoteCache.suppliers = Array.isArray(L.suppliers) ? L.suppliers : remoteCache.suppliers;
         remoteCache.places = Array.isArray(L.places) ? L.places : remoteCache.places;
+
+        remoteCache.expense_articles = Array.isArray(L.expense_articles) ? L.expense_articles : remoteCache.expense_articles;
 
         // write LS
         if (remoteCache.vins.length) lsWriteArr(LS_KEYS.VINS, mergeUnique(remoteCache.vins, lsReadArr(LS_KEYS.VINS)), 4000);
@@ -765,6 +773,23 @@
       submitBtn.disabled = false;
       return;
     }
+
+
+    if (formType === "fin_company_expense") {
+       formCard.appendChild(createInput("opDateInput", "Дата", "", todayISO(), "date"));
+
+       formCard.appendChild(createAutocompleteInput("expenseArticleInput","Статья","Начни вводить статью", remoteCache.expense_articles || []));
+
+       formCard.appendChild(createInput("amountInput", "Сумма", "Например: 1 200 000"));
+       formCard.appendChild(createTextarea("commentInput", "Комментарий", ""));
+
+       // формат суммы (пробелы)
+       setupMoneyFormat("amountInput");
+
+       submitBtn.disabled = false;
+       return;
+}
+
 
     if (formType === "fin_company") {
       formCard.appendChild(createInput("opDateInput", "Дата", "", todayISO(), "date", false, true));
@@ -1328,6 +1353,15 @@
       return payload;
     }
 
+    if (formType === "fin_company_expense") {
+      payload.op_date = getRuDate("opDateInput");
+      payload.expense_article = document.getElementById("expenseArticleInput").value;
+      payload.amount = document.getElementById("amountInput").value;
+      payload.comment = document.getElementById("commentInput").value;
+      return payload;
+    }
+
+
     if (isSaleMainLike(formType)) return collectSaleMain();
 
     if (formType === "sale_deposit") {
@@ -1492,3 +1526,4 @@
 </script>
 </body>
 </html>
+
