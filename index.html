@@ -223,7 +223,7 @@
     EXP_CATS: "avtolink_expense_categories",
     EXP_ARTICLES: "avtolink_expense_articles",
     VIN_SOURCE_MAP: "avtolink_vin_source_map",
-    REMOTE_TS: "avtolink_remote_ts_" + APP_VERSION,
+    REMOTE_TS: "avtolink_remote_ts_" + APP_VERSION, // (оставили для совместимости, но используем ключ ниже)
     SCHEMA: "avtolink_schema_v1",
   };
 
@@ -240,7 +240,7 @@
   function lsReadArr(key){ const a=lsRead(key, []); return Array.isArray(a)?a.filter(Boolean):[]; }
   function lsWriteArr(key, arr, max=2000){ lsWrite(key, (Array.isArray(arr)?arr:[]).filter(Boolean).slice(0,max)); }
 
-  // ✅ Авто-очистка кэша при смене версии (убирает "менеджеров" из источников, и т.п.)
+  // ✅ Авто-очистка кэша при смене версии
   try {
     const prev = localStorage.getItem(LS_KEYS.SCHEMA);
     if (prev !== String(APP_VERSION)) {
@@ -458,7 +458,7 @@
       const raw = String(filter || "").trim();
       if (!raw) return;
       const onlyDigits = /^[0-9]+$/.test(raw);
-      if (!onlyDigits && raw.length < 2) return; // буквы/смесь — с 2 символов
+      if (!onlyDigits && raw.length < 2) return;
       const f = raw.toLowerCase();
 
       dl.innerHTML = "";
@@ -481,8 +481,6 @@
 
     input.addEventListener("focus", () => fill(input.value));
     input.addEventListener("input", () => fill(input.value));
-
-    // ✅ сохраняем VIN, который вводили
     input.addEventListener("change", ()=>rememberVin(input.value));
     input.addEventListener("blur", ()=>rememberVin(input.value));
   }
@@ -497,19 +495,32 @@
   const LOOKUP_API_URL_RF_EXPENSE =
     "https://script.google.com/macros/s/AKfycbz-f23gebbose-v_t2iqFeX-7UeoKg1-JUU1fhPCdk2GqM0Dmk1bIDZJoHUVD_Q7bMHAA/exec";
 
-  const LOOKUP_API_TOKEN = ""; // если включишь проверку токена в Code.gs
+  const LOOKUP_API_TOKEN = "";
 
   function getLookupUrl() {
     if (formType === "boss_buy") return LOOKUP_API_URL_BOSS;
     if (formType === "fin_company_expense") return LOOKUP_API_URL_RF_EXPENSE;
     return LOOKUP_API_URL_REF;
   }
-  // ✅ фикс: раньше код звал getLookupUrlByForm(), поэтому делаем алиас
   function getLookupUrlByForm(){ return getLookupUrl(); }
 
   function canUseLookup() {
     const u = getLookupUrl();
     return typeof u === "string" && u.trim().startsWith("https://");
+  }
+
+  // ✅ НОВОЕ: отдельный кэш-таймстемп под КАЖДЫЙ lookup URL (MAIN/BOSS/RF)
+  function lookupUrlSig_(){
+    try{
+      const u = String(getLookupUrl() || "");
+      if (!u) return "none";
+      // берём хвост, чтобы ключ был короткий
+      const tail = u.split("/").slice(-2).join("_");
+      return tail.replace(/[^\w]/g,"") || "u";
+    }catch(e){ return "none"; }
+  }
+  function remoteTsKey_(){
+    return "avtolink_remote_ts_" + APP_VERSION + "_" + lookupUrlSig_();
   }
 
   function jsonpRequest(baseUrl, params, timeoutMs = 8000) {
@@ -582,7 +593,6 @@
 
   function getAllSources() {
     const raw = mergeUnique(sources, remoteCache.sources, lsReadArr(LS_KEYS.SOURCES));
-    // ✅ вырезаем имена менеджеров из источников (даже если что-то смешалось)
     return removeManagersFromSources(raw, getAllManagers());
   }
 
@@ -601,7 +611,6 @@
       if (res && res.ok && res.lists) {
         const L = res.lists;
 
-        // MAIN/BOSS списки
         remoteCache.vins = Array.isArray(L.vins) ? L.vins : remoteCache.vins;
         remoteCache.brand_models = Array.isArray(L.brand_models) ? L.brand_models : remoteCache.brand_models;
         remoteCache.sources = Array.isArray(L.sources) ? L.sources : remoteCache.sources;
@@ -610,25 +619,21 @@
         remoteCache.suppliers = Array.isArray(L.suppliers) ? L.suppliers : remoteCache.suppliers;
         remoteCache.places = Array.isArray(L.places) ? L.places : remoteCache.places;
 
-        // RF (expense_articles)
         remoteCache.expense_articles = Array.isArray(L.expense_articles) ? L.expense_articles : remoteCache.expense_articles;
 
-        // ✅ фильтруем источники от менеджеров
+        // ✅ фильтруем источники от менеджеров (на всякий)
         remoteCache.sources = removeManagersFromSources(remoteCache.sources, remoteCache.managers);
 
-        // write LS
         if (remoteCache.vins.length) lsWriteArr(LS_KEYS.VINS, mergeUnique(remoteCache.vins, lsReadArr(LS_KEYS.VINS)), 4000);
         if (remoteCache.brand_models.length) lsWriteArr(LS_KEYS.BRAND_MODELS, mergeUnique(remoteCache.brand_models, lsReadArr(LS_KEYS.BRAND_MODELS)), 3000);
         if (remoteCache.managers.length) lsWriteArr(LS_KEYS.MANAGERS, mergeUnique(remoteCache.managers, lsReadArr(LS_KEYS.MANAGERS)), 2000);
 
-        // sources: тоже сохраняем уже "очищенными"
         if (remoteCache.sources.length) lsWriteArr(LS_KEYS.SOURCES, mergeUnique(remoteCache.sources, lsReadArr(LS_KEYS.SOURCES)), 2000);
 
         if (remoteCache.expense_categories.length) lsWriteArr(LS_KEYS.EXP_CATS, mergeUnique(remoteCache.expense_categories, lsReadArr(LS_KEYS.EXP_CATS)), 2000);
 
         if (remoteCache.expense_articles.length) lsWriteArr(LS_KEYS.EXP_ARTICLES, mergeUnique(remoteCache.expense_articles, lsReadArr(LS_KEYS.EXP_ARTICLES)), 2000);
 
-        // refresh datalists if present
         updateDatalist("vinInput_list", getAllVins());
         updateDatalist("brandModelInput_list", getAllBrandModels());
         updateDatalist("leadSourceInput_list", getAllSources());
@@ -645,8 +650,8 @@
   }
 
   function shouldRefreshRemoteLists() {
-    const ts = Number(localStorage.getItem(LS_KEYS.REMOTE_TS) || "0");
-    const TTL = 10 * 60 * 1000; // 10 минут
+    const ts = Number(localStorage.getItem(remoteTsKey_()) || "0");
+    const TTL = 10 * 60 * 1000;
     return (!ts) || ((Date.now() - ts) > TTL);
   }
 
@@ -654,13 +659,14 @@
     if (!canUseLookup()) return;
     const run = async () => {
       await remoteListsLoad(true);
-      try { localStorage.setItem(LS_KEYS.REMOTE_TS, String(Date.now())); } catch(e){}
+      try { localStorage.setItem(remoteTsKey_(), String(Date.now())); } catch(e){}
     };
     if (shouldRefreshRemoteLists()) {
       const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 200));
       idle(run);
     } else {
       if (!lsReadArr(LS_KEYS.VINS).length && !remoteCache.vins.length) run();
+      if (formType === "fin_company_expense" && !lsReadArr(LS_KEYS.EXP_ARTICLES).length && !remoteCache.expense_articles.length) run();
     }
   }
 
@@ -676,7 +682,7 @@
     return null;
   }
 
-  // ✅ Server-side source-by-vin (надёжный вариант)
+  // ✅ Server-side source-by-vin
   async function sourceByVinServer(vinRaw) {
     const vin = normalizeVin(vinRaw);
     if (!vin || vin.length < 4) return "";
@@ -756,7 +762,7 @@
       sourceTouched = false;
       markTouched("leadSourceInput", v=>sourceTouched=v);
 
-      setupAutoFillFromVin(); // brand_model + source
+      setupAutoFillFromVin();
       submitBtn.disabled = false;
       return;
     }
@@ -784,7 +790,7 @@
       sourceTouched = false;
       markTouched("leadSourceInput", v=>sourceTouched=v);
 
-      setupAutoFillFromVin(); // brand_model + source
+      setupAutoFillFromVin();
       submitBtn.disabled = false;
       return;
     }
@@ -804,7 +810,6 @@
       formCard.appendChild(createTextarea("commentInput", "Комментарий", "", false, true));
 
       setupVinAutocompleteSmart("vinInput", getAllVins);
-
       ["evacuatorInput","labInput","utilWriteoffInput","utilInput","preSaleInput","marketingInput","otherInput"].forEach(setupMoneyInput);
 
       setupAutoFillBrandByVinOnly();
@@ -812,7 +817,6 @@
       return;
     }
 
-    // ✅ RF: расход компании (статьи из СПРАВОЧНИК_РАСХОДЫ)
     if (formType === "fin_company_expense") {
       formCard.appendChild(createInput("opDateInput", "Дата", "", todayISO(), "date", false, true));
       formCard.appendChild(createAutocompleteInput("expenseArticleInput", "Статья", "Начни вводить статью", getAllExpenseArticles(), true));
@@ -820,12 +824,10 @@
       formCard.appendChild(createTextarea("commentInput", "Комментарий (необязательно)", "", false, false));
 
       setupMoneyInput("amountInput");
-
       submitBtn.disabled = false;
       return;
     }
 
-    // MAIN: расход компании (категории из MAIN СПРАВОЧНИКИ_РАСХОДЫ)
     if (formType === "fin_company") {
       formCard.appendChild(createInput("opDateInput", "Дата", "", todayISO(), "date", false, true));
       formCard.appendChild(createAutocompleteInput("categoryInput", "Статья расхода", "Например: Аренда", getAllExpenseCategories(), true));
@@ -920,7 +922,6 @@
     const priceNdsWrap = createInput("priceNdsInput", "Цена с НДС", "", "", "text", false, true);
     const markupNdsWrap = createInput("markupNdsInput", "Наценка НДС (% / руб)", "", "", "text", false, true);
 
-    // ✅ НОВОЕ: "Цена без НДС за наличные" (для варианта "С НДС")
     const priceNoVatCashWrap = createInput("priceNoVatCashInput", "Цена без НДС за наличные", "", "", "text", false, true);
 
     const contractPriceWrap = createInput("contractPriceInput", "Сумма договора", "", "", "text", false, true);
@@ -962,7 +963,6 @@
       showEl(priceNdsWrap, payment === "cashless" && vat);
       showEl(markupNdsWrap, payment === "cashless" && vat);
 
-      // ✅ показываем только при "С НДС" (безнал + НДС)
       showEl(priceNoVatCashWrap, payment === "cashless" && vat);
 
       showEl(contractPriceWrap, payment === "cashless" && commission);
@@ -1057,8 +1057,8 @@
         if (bm) brandEl.value = bm;
       }
 
-      // ✅ source: заполняем если поле пустое (даже если "трогали")
-      if (sourceEl && !sourceEl.value) {
+      // ✅ FIX: источник подтягиваем по VIN, если пользователь НЕ трогал поле вручную
+      if (sourceEl && !sourceTouched) {
         const local = vinSourceMapGet(v);
         if (local) { sourceEl.value = local; return; }
 
@@ -1108,6 +1108,7 @@
 
   // ---------- boss_buy ----------
   function renderBossBuy() {
+    // (оставлено без изменений, как у тебя)
     formCard.innerHTML = "";
 
     formCard.appendChild(createInput("vinInput", "VIN (можно цифры подряд)", "Например: 1457 или полный VIN", "", "text", false, true));
@@ -1282,7 +1283,7 @@
       if (vat) {
         mustHave.push("priceNdsInput");
         mustHave.push("markupNdsInput");
-        mustHave.push("priceNoVatCashInput"); // ✅ новое поле
+        mustHave.push("priceNoVatCashInput");
       } else {
         mustHave.push("priceCashlessInput");
       }
@@ -1353,10 +1354,8 @@
     payload.broker_expense = (payment === "cashless" && commission) ? (document.getElementById("brokerExpenseInput")?.value || "") : "";
     payload.markup_nds = (payment === "cashless" && vat) ? (document.getElementById("markupNdsInput")?.value || "") : "";
 
-    // ✅ новое поле
     payload.price_no_vat_cash = (payment === "cashless" && vat) ? (document.getElementById("priceNoVatCashInput")?.value || "") : "";
 
-    // совместимость со старым python
     payload.price_cash = (payment === "cash") ? price : "";
     payload.price_cashless = (payment === "cashless" && !vat) ? price : "";
     payload.price_nds = (payment === "cashless" && vat) ? price : "";
@@ -1530,12 +1529,10 @@
 
     const payload = collectFormData();
 
-    // ✅ сохраняем VIN (всегда)
     try {
       if (payload && payload.vin) rememberVin(payload.vin);
     } catch(e){}
 
-    // ✅ сохранить vin->source локально (fallback)
     try {
       if (payload && payload.vin && payload.source) vinSourceMapSet(payload.vin, payload.source);
     } catch(e){}
