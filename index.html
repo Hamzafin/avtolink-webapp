@@ -1570,6 +1570,12 @@
 
   rememberField("managerInput", "avtolink_last_manager", tgUserFullName());
   rememberField("leadSourceInput", "avtolink_last_source", "");
+  try {
+    const src = document.getElementById("leadSourceInput");
+    if (src) src.value = "";
+  } catch(e){}
+
+  
   rememberField("categoryInput", "avtolink_last_exp_cat", "");
   rememberField("expenseArticleInput", "avtolink_last_exp_article", "");
 
@@ -1625,4 +1631,5 @@
 </script>
 </body>
 </html>
+
 
