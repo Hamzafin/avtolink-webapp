@@ -92,7 +92,7 @@
   const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
   const urlParams = new URLSearchParams(window.location.search);
   const formType = urlParams.get("type") || "unknown";
-  const APP_VERSION = urlParams.get("v") || "6";
+  const APP_VERSION = urlParams.get("v") || "7";
 
   // ✅ iOS detection (для фикса "кнопка не нажимается/подвисает")
   const IS_IOS =
@@ -1631,5 +1631,6 @@
 </script>
 </body>
 </html>
+
 
 
