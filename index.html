@@ -238,6 +238,37 @@
     });
   }
 
+  // ✅ helper: ISO from "DD.MM.YYYY" or keep ISO
+  function toISODateMaybe(value){
+    const v = String(value || "").trim();
+    if (!v) return "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    const m = v.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (m) {
+      const dd = String(m[1]).padStart(2,"0");
+      const mm = String(m[2]).padStart(2,"0");
+      const yy = m[3];
+      return `${yy}-${mm}-${dd}`;
+    }
+    return "";
+  }
+
+  // ✅ helper: поставить значение в SELECT (если нет опции — добавим)
+  function setSelectValueSmart(selectEl, value){
+    if (!selectEl) return;
+    const v = String(value || "").trim();
+    if (!v) { selectEl.value = ""; return; }
+    if (selectEl.tagName !== "SELECT") { selectEl.value = v; return; }
+    const exists = Array.from(selectEl.options || []).some(o => o.value === v);
+    if (!exists) {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = v;
+      selectEl.appendChild(o);
+    }
+    selectEl.value = v;
+  }
+
   // ---------- localStorage ----------
   const LS_KEYS = {
     VINS: "avtolink_vins",
@@ -314,6 +345,48 @@
       o.value = opt;
       dl.appendChild(o);
     });
+  }
+
+  // ✅ select options updater (для менеджера/источника)
+  function updateSelectOptions(selectId, options, placeholder="Выберите...") {
+    const el = document.getElementById(selectId);
+    if (!el || el.tagName !== "SELECT") return;
+
+    const prev = (el.value || "").trim();
+    const pending = (el.dataset.pendingValue || "").trim();
+
+    el.innerHTML = "";
+
+    const ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = placeholder;
+    ph.disabled = true;
+    ph.selected = true;
+    el.appendChild(ph);
+
+    const list = uniq(options || []);
+    list.forEach(v=>{
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = v;
+      el.appendChild(o);
+    });
+
+    // сначала пробуем восстановить прежнее значение, потом pendingValue
+    const trySet = (v) => {
+      if (!v) return false;
+      const exists = Array.from(el.options).some(o=>o.value === v);
+      if (exists) {
+        el.value = v;
+        ph.selected = false;
+        return true;
+      }
+      return false;
+    };
+
+    if (trySet(prev)) { /* ok */ }
+    else if (trySet(pending)) { el.dataset.pendingValue = ""; }
+    else { el.value = ""; ph.selected = true; }
   }
 
   function createInput(id, labelText, placeholder = "", value = "", type = "text", readonly = false, required = false) {
@@ -426,6 +499,44 @@
     if (required) i.dataset.required = "1";
     w.appendChild(l);
     w.appendChild(i);
+    return w;
+  }
+
+  // ✅ NEW: Select from string list (для iPhone: менеджер/источник)
+  function createSelectFromList(id, labelText, options = [], placeholder = "Выберите...", required = false) {
+    const w = document.createElement("div");
+    w.className = "field";
+
+    const l = document.createElement("label");
+    l.htmlFor = id;
+    l.textContent = labelText;
+    if (required) {
+      const r = document.createElement("span");
+      r.className = "req";
+      r.textContent = "*";
+      l.appendChild(r);
+    }
+
+    const s = document.createElement("select");
+    s.id = id;
+
+    const ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = placeholder;
+    ph.disabled = true;
+    ph.selected = true;
+    s.appendChild(ph);
+
+    uniq(options || []).forEach(v=>{
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = v;
+      s.appendChild(o);
+    });
+
+    if (required) s.dataset.required = "1";
+    w.appendChild(l);
+    w.appendChild(s);
     return w;
   }
 
@@ -655,11 +766,19 @@
         if (remoteCache.expense_categories.length) lsWriteArr(LS_KEYS.EXP_CATS, mergeUnique(remoteCache.expense_categories, lsReadArr(LS_KEYS.EXP_CATS)), 2000);
         if (remoteCache.expense_articles.length) lsWriteArr(LS_KEYS.EXP_ARTICLES, mergeUnique(remoteCache.expense_articles, lsReadArr(LS_KEYS.EXP_ARTICLES)), 2000);
 
-        // refresh datalists if present
+        // refresh datalists/selects if present
         updateDatalist("vinInput_list", getAllVins());
         updateDatalist("brandModelInput_list", getAllBrandModels());
-        updateDatalist("leadSourceInput_list", getAllSources());
-        updateDatalist("managerInput_list", getAllManagers());
+
+        // ✅ NEW: если менеджер/источник стали SELECT — обновляем их опции
+        const mgrEl = document.getElementById("managerInput");
+        if (mgrEl && mgrEl.tagName === "SELECT") updateSelectOptions("managerInput", getAllManagers(), "Выберите менеджера");
+        else updateDatalist("managerInput_list", getAllManagers());
+
+        const srcEl = document.getElementById("leadSourceInput");
+        if (srcEl && srcEl.tagName === "SELECT") updateSelectOptions("leadSourceInput", getAllSources(), "Выберите источник");
+        else updateDatalist("leadSourceInput_list", getAllSources());
+
         updateDatalist("categoryInput_list", getAllExpenseCategories());
         updateDatalist("expenseArticleInput_list", getAllExpenseArticles());
 
@@ -735,7 +854,9 @@
         {value:"Поставка", label:"Поставка"},
       ], "Выберите тип сделки", true));
 
-      formCard.appendChild(createAutocompleteInput("managerInput","Менеджер","", getAllManagers(), true));
+      // ✅ ИЗМЕНЕНИЕ: менеджер теперь SELECT (раскрывающийся список)
+      formCard.appendChild(createSelectFromList("managerInput","Менеджер", getAllManagers(), "Выберите менеджера", true));
+
       formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "Начните вводить", getAllBrandModels(), true));
       formCard.appendChild(createInput("vinInput", "VIN (можно цифры подряд)", "Например: 1457 или полный VIN", "", "text", false, true));
       formCard.appendChild(createInput("configInput", "Комплектация", "", "", "text", false, true));
@@ -765,11 +886,16 @@
     }
 
     if (formType === "sale_deposit") {
-      formCard.appendChild(createAutocompleteInput("managerInput","Менеджер","", getAllManagers(), true));
+      // ✅ ИЗМЕНЕНИЕ: менеджер теперь SELECT
+      formCard.appendChild(createSelectFromList("managerInput","Менеджер", getAllManagers(), "Выберите менеджера", true));
+
       formCard.appendChild(createInput("saleDateInput", "Дата", "", todayISO(), "date", false, true));
       formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "", getAllBrandModels(), true));
       formCard.appendChild(createInput("vinInput", "VIN (можно цифры подряд)", "Например: 1457 или полный VIN", "", "text", false, true));
-      formCard.appendChild(createAutocompleteInput("leadSourceInput", "Источник", "Например: Авито", getAllSources(), true));
+
+      // ✅ ИЗМЕНЕНИЕ: источник теперь SELECT (и при входе будет пустым, как ниже)
+      formCard.appendChild(createSelectFromList("leadSourceInput", "Источник", getAllSources(), "Выберите источник", true));
+
       formCard.appendChild(createInput("depositSumInput", "Сумма задатка", "", "", "text", false, true));
       formCard.appendChild(createInput("receiverInput", "Кому передана сумма", "", "", "text", false, true));
       formCard.appendChild(createInput("priceInput", "Цена продажи", "", "", "text", false, true));
@@ -788,11 +914,16 @@
     }
 
     if (formType === "sale_extra") {
-      formCard.appendChild(createAutocompleteInput("managerInput","Менеджер","", getAllManagers(), true));
+      // ✅ ИЗМЕНЕНИЕ: менеджер теперь SELECT
+      formCard.appendChild(createSelectFromList("managerInput","Менеджер", getAllManagers(), "Выберите менеджера", true));
+
       formCard.appendChild(createInput("saleDateInput", "Дата", "", todayISO(), "date", false, true));
       formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "", getAllBrandModels(), true));
       formCard.appendChild(createInput("vinInput", "VIN (можно цифры подряд)", "Например: 1457 или полный VIN", "", "text", false, true));
-      formCard.appendChild(createAutocompleteInput("leadSourceInput", "Источник", "Например: Авито", getAllSources(), true));
+
+      // ✅ ИЗМЕНЕНИЕ: источник теперь SELECT
+      formCard.appendChild(createSelectFromList("leadSourceInput", "Источник", getAllSources(), "Выберите источник", true));
+
       formCard.appendChild(createTextarea("extraDescInput", "Доп. услуги (описание) (необязательно)", "", false, false));
       formCard.appendChild(createInput("priceInput", "Цена продажи", "", "", "text", false, true));
       formCard.appendChild(createInput("receiverInput", "Кому передали средства", "", "", "text", false, true));
@@ -903,7 +1034,8 @@
   function renderSaleMain() {
     formCard.innerHTML = "";
 
-    formCard.appendChild(createAutocompleteInput("managerInput","Менеджер","", getAllManagers(), true));
+    // ✅ ИЗМЕНЕНИЕ: менеджер теперь SELECT
+    formCard.appendChild(createSelectFromList("managerInput","Менеджер", getAllManagers(), "Выберите менеджера", true));
 
     const payWrap = createSelectKV("salePaymentTypeInput", "Оплата", [
       {value:"cash", label:"Нал"},
@@ -932,7 +1064,9 @@
     formCard.appendChild(createInput("saleDateInput", "Дата продажи", "", todayISO(), "date", false, true));
     formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "", getAllBrandModels(), true));
     formCard.appendChild(createInput("vinInput", "VIN (можно цифры подряд)", "Например: 1457 или полный VIN", "", "text", false, true));
-    formCard.appendChild(createAutocompleteInput("leadSourceInput", "Источник", "Например: Авито", getAllSources(), true));
+
+    // ✅ ИЗМЕНЕНИЕ: источник теперь SELECT
+    formCard.appendChild(createSelectFromList("leadSourceInput", "Источник", getAllSources(), "Выберите источник", true));
 
     const buyerWrap = createInput("buyerInput", "Покупатель (необязательно)", "", "", "text", false, false);
     const receiverWrap = createInput("receiverInput", "Получатель (необязательно)", "", "", "text", false, false);
@@ -1079,14 +1213,22 @@
         if (bm) brandEl.value = bm;
       }
 
+      // ✅ источник подтягиваем ТОЛЬКО если он пустой (чтобы ручной выбор не перетирался)
       if (sourceEl && !sourceEl.value) {
         const local = vinSourceMapGet(v);
-        if (local) { sourceEl.value = local; return; }
+        if (local) { setSelectValueSmart(sourceEl, local); return; }
 
         const srv = await sourceByVinServer(v);
         if (srv) {
-          sourceEl.value = srv;
+          setSelectValueSmart(sourceEl, srv);
           vinSourceMapSet(v, srv);
+
+          // ✅ чтобы строгая проверка "из списка" не ломалась даже если списки ещё не загрузились
+          try {
+            const cur = lsReadArr(LS_KEYS.SOURCES);
+            const merged = mergeUnique([srv], cur);
+            lsWriteArr(LS_KEYS.SOURCES, merged, 2000);
+          } catch(e){}
         }
       }
     };
@@ -1244,7 +1386,79 @@
     });
 
     document.getElementById("modeSelect").addEventListener("change", (e) => setMode(e.target.value));
+
+    // ✅ NEW: автоподтягивание данных из таблицы руководителя по VIN (если есть)
+    setupBossBuyAutofillFromVin();
+
     submitBtn.disabled = false;
+  }
+
+  // ✅ NEW: Boss_buy autofill from VIN (подтянуть заполненные поля)
+  function setupBossBuyAutofillFromVin() {
+    const vinEl = document.getElementById("vinInput");
+    if (!vinEl) return;
+    if (vinEl.dataset && vinEl.dataset.bossAuto === "1") return;
+    vinEl.dataset.bossAuto = "1";
+
+    let tmr=null;
+
+    const setIfEmpty = (id, value, mode="text") => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if ((el.value || "").trim()) return;
+      const v = String(value || "").trim();
+      if (!v) return;
+      if (mode === "date") {
+        const iso = toISODateMaybe(v);
+        if (iso) el.value = iso;
+        return;
+      }
+      if (el.tagName === "SELECT") {
+        setSelectValueSmart(el, v);
+      } else {
+        el.value = v;
+      }
+    };
+
+    const run = async () => {
+      const v = normalizeVin(vinEl.value);
+      if (!v || v.length < 4) return;
+
+      const data = await lookupByVin(v); // для boss_buy getLookupUrl() уже BOSS
+      if (!data) return;
+
+      // закупка
+      setIfEmpty("purchaseDateInput", data.purchase_date || data.purchaseDate || data.date || "", "date");
+      setIfEmpty("supplierInput", data.supplier || data.seller || "");
+      setIfEmpty("placeInput", data.purchase_place || data.place || data.purchasePlace || "");
+      setIfEmpty("brandModelInput", data.brand_model || data.brandModel || "");
+      setIfEmpty("complectationInput", data.complectation || "");
+
+      setIfEmpty("currencyInput", data.currency || "");
+      setIfEmpty("amountCurrencyInput", data.amount_currency || data.amountCurrency || "");
+      setIfEmpty("rateInput", data.rate_to_rub || data.rate || data.rateToRub || "");
+      setIfEmpty("amountRubInput", data.amount_rub || data.amountRub || "");
+
+      // оплата (если сервер отдаёт последнюю/текущую)
+      setIfEmpty("payDateInput", data.pay_date || data.payDate || "", "date");
+      setIfEmpty("payCurrencySelect", data.pay_currency || data.payCurrency || "");
+      setIfEmpty("payAmountCurrencyInput", data.pay_amount_currency || data.payAmountCurrency || "");
+      setIfEmpty("payRateInput", data.pay_rate || data.payRate || "");
+      setIfEmpty("payRubInput", data.pay_amount_rub || data.payAmountRub || data.pay_rub || "");
+
+      // комментарии
+      setIfEmpty("commentInput_p", data.comment_purchase || data.comment_p || "");
+      setIfEmpty("commentInput", data.comment_pay || data.comment || "");
+
+      // если прилетело "amount_rub" в числах без пробелов — ок, форматирование оставляем твоим setupMoneyInput/авторасчетом
+    };
+
+    vinEl.addEventListener("input", ()=>{
+      if (tmr) clearTimeout(tmr);
+      tmr=setTimeout(run, 380);
+    });
+    vinEl.addEventListener("change", run);
+    vinEl.addEventListener("blur", run);
   }
 
   // ---------- VALIDATION ----------
@@ -1557,10 +1771,31 @@
     if (!el) return;
     try {
       const saved = localStorage.getItem(lsKey);
-      if (!el.value && saved) el.value = saved;
-      if (!el.value && fallback) el.value = fallback;
+
+      // ✅ SELECT: если опции ещё не загрузились — кладём в pendingValue
+      const trySetSelect = (val) => {
+        const v = String(val || "").trim();
+        if (!v) return false;
+        if (el.tagName !== "SELECT") return false;
+        const exists = Array.from(el.options || []).some(o => o.value === v);
+        if (exists) { el.value = v; return true; }
+        el.dataset.pendingValue = v;
+        return false;
+      };
+
+      if (!el.value && saved) {
+        if (el.tagName === "SELECT") { trySetSelect(saved); }
+        else el.value = saved;
+      }
+      if (!el.value && fallback) {
+        if (el.tagName === "SELECT") { trySetSelect(fallback); }
+        else el.value = fallback;
+      }
     } catch (e) {}
     el.addEventListener("input", () => {
+      try { localStorage.setItem(lsKey, el.value || ""); } catch (e) {}
+    });
+    el.addEventListener("change", () => {
       try { localStorage.setItem(lsKey, el.value || ""); } catch (e) {}
     });
   }
@@ -1575,7 +1810,6 @@
     if (src) src.value = "";
   } catch(e){}
 
-  
   rememberField("categoryInput", "avtolink_last_exp_cat", "");
   rememberField("expenseArticleInput", "avtolink_last_exp_article", "");
 
@@ -1631,6 +1865,3 @@
 </script>
 </body>
 </html>
-
-
-
