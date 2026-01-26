@@ -1393,7 +1393,8 @@
     submitBtn.disabled = false;
   }
 
-  // ✅ NEW: Boss_buy autofill from VIN (подтянуть заполненные поля)
+
+    // ✅ NEW: Boss_buy autofill from VIN (подтянуть заполненные поля)
   function setupBossBuyAutofillFromVin() {
     const vinEl = document.getElementById("vinInput");
     if (!vinEl) return;
@@ -1406,17 +1407,26 @@
       const el = document.getElementById(id);
       if (!el) return;
       if ((el.value || "").trim()) return;
+
       const v = String(value || "").trim();
       if (!v) return;
+
       if (mode === "date") {
         const iso = toISODateMaybe(v);
         if (iso) el.value = iso;
         return;
       }
+
       if (el.tagName === "SELECT") {
         setSelectValueSmart(el, v);
       } else {
         el.value = v;
+
+        // ✅ NEW: если это money-поле (setupMoneyInput уже ставил dataset.money=1),
+        // то сразу форматируем, даже без blur/ввода
+        if (el.dataset && el.dataset.money === "1") {
+          el.value = formatWithSpaces(el.value);
+        }
       }
     };
 
@@ -1449,8 +1459,6 @@
       // комментарии
       setIfEmpty("commentInput_p", data.comment_purchase || data.comment_p || "");
       setIfEmpty("commentInput", data.comment_pay || data.comment || "");
-
-      // если прилетело "amount_rub" в числах без пробелов — ок, форматирование оставляем твоим setupMoneyInput/авторасчетом
     };
 
     vinEl.addEventListener("input", ()=>{
@@ -1460,6 +1468,7 @@
     vinEl.addEventListener("change", run);
     vinEl.addEventListener("blur", run);
   }
+
 
   // ---------- VALIDATION ----------
   function isFieldHidden(el){
@@ -1865,4 +1874,5 @@
 </script>
 </body>
 </html>
+
 
