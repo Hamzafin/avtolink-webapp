@@ -915,7 +915,6 @@
 
     if (formType === "sale_extra") {
       // ✅ ИЗМЕНЕНИЕ: менеджер теперь SELECT
-      formCard.appendChild(createSelectFromList("managerInput","Менеджер", getAllManagers(), "Выберите менеджера", true));
 
       formCard.appendChild(createInput("saleDateInput", "Дата", "", todayISO(), "date", false, true));
       formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "", getAllBrandModels(), true));
@@ -1684,7 +1683,6 @@
       payload.sale_date = getRuDate("saleDateInput");
       payload.brand_model = document.getElementById("brandModelInput")?.value || "";
       payload.vin = document.getElementById("vinInput")?.value || "";
-      payload.source = document.getElementById("leadSourceInput")?.value || "";
       payload.extra_desc = document.getElementById("extraDescInput")?.value || "";
       payload.price = document.getElementById("priceInput")?.value || "";
       payload.receiver = document.getElementById("receiverInput")?.value || "";
@@ -1865,3 +1863,4 @@
 </script>
 </body>
 </html>
+
