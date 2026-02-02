@@ -154,6 +154,7 @@
     sale_main: "Продажа — основная",
     sale_deposit: "Задаток",
     sale_extra: "Доп. услуги",
+    deposit_status: "Статус задатка", // ✅ NEW
     sale_nds_broker: "Продажа — НДС с комиссией брокера",
     sale_nds_no_broker: "Продажа — НДС без комиссии брокера",
     sale_cash: "Продажа — Наличные",
@@ -347,7 +348,7 @@
     });
   }
 
-  // ✅ select options updater (для менеджера/источника)
+  // ✅ select options updater (для iPhone: менеджер/источник)
   function updateSelectOptions(selectId, options, placeholder="Выберите...") {
     const el = document.getElementById(selectId);
     if (!el || el.tagName !== "SELECT") return;
@@ -880,6 +881,11 @@
       return;
     }
 
+    if (formType === "deposit_status") { // ✅ NEW
+      renderDepositStatus();
+      return;
+    }
+
     if (isSaleMainLike(formType)) {
       renderSaleMain();
       return;
@@ -1008,6 +1014,30 @@
     }
 
     formCard.appendChild(createTextarea("rawInput", "Данные", "Форма не настроена. Введите данные в свободной форме.", false, true));
+    submitBtn.disabled = false;
+  }
+
+  // ✅ NEW: Deposit status (VIN + статус)
+  function renderDepositStatus() {
+    formCard.innerHTML = "";
+
+    formCard.appendChild(createInput("vinInput", "VIN (можно цифры подряд)", "Например: 1457 или полный VIN", "", "text", false, true));
+
+    formCard.appendChild(
+      createSelectKV("depositStatusInput", "Новый статус", [
+        { value: "Зачтён", label: "✅ Зачтён" },
+        { value: "Возврат", label: "↩️ Возврат" },
+        { value: "Сгорел", label: "🔥 Сгорел" },
+      ], "Выберите статус", true)
+    );
+
+    const hint = document.createElement("div");
+    hint.className = "hint";
+    hint.textContent = "Если по VIN несколько активных задатков — бот попросит выбрать нужную строку.";
+    formCard.appendChild(hint);
+
+    setupVinAutocompleteSmart("vinInput", getAllVins);
+
     submitBtn.disabled = false;
   }
 
@@ -1573,6 +1603,9 @@
     // ✅ Финансист/Руководитель — обязательность полностью убрана
     if (isFinanceOrBossForms(formType)) return true;
 
+    // ✅ NEW: статус задатка — просто проверяем обязательные поля
+    if (formType === "deposit_status") return validateVisibleRequired([]);
+
     // ✅ Менеджер: Менеджер/Источник строго из списка (нельзя руками)
     if (isManagerForms(formType)) {
       if (!enforceFromList("managerInput", getAllManagers, true)) return false;
@@ -1651,6 +1684,12 @@
       payload.stock_date = getRuDate("stockDateInput");
       payload.payment_type = document.getElementById("payTypeInput")?.value || "";
       payload.client = document.getElementById("clientInput")?.value || "";
+      return payload;
+    }
+
+    if (formType === "deposit_status") { // ✅ NEW
+      payload.vin = normalizeVin(document.getElementById("vinInput")?.value || "");
+      payload.deposit_status = document.getElementById("depositStatusInput")?.value || "";
       return payload;
     }
 
@@ -1862,6 +1901,3 @@
 </script>
 </body>
 </html>
-
-
-
