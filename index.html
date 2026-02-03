@@ -1030,6 +1030,7 @@
   }
 
   // ✅ NEW: форма статуса задатка (WebApp напрямую пишет в таблицу через Apps Script)
+  // ✅ FIX: теперь используем action=deposit_find и items[] (без "закрыт")
   function renderDepositStatusForm(){
     formCard.innerHTML = "";
     submitBtn.disabled = true;
@@ -1040,7 +1041,7 @@
 
     const hint = document.createElement("div");
     hint.className = "hint";
-    hint.textContent = "Подсказки показывают VIN-ы, которые есть в листе «Задаток» и ещё не закрыты.";
+    hint.textContent = "Подсказки и поиск берутся напрямую из листа «Задаток».";
     formCard.appendChild(hint);
 
     // select строк задатка
@@ -1107,99 +1108,15 @@
 
     let tmr = null;
 
-    async function suggestVins(){
-      const q = String(vinEl.value||"").trim();
-      if (!q || q.length < 2) { updateDatalist(dlId, []); return; }
-      try{
-        const res = await jsonpRequest(getLookupUrl(), { action:"deposit_suggest", q:q, limit:"80" }, 8000);
-        if (res && res.ok && Array.isArray(res.vins)) {
-          updateDatalist(dlId, res.vins.map(v=>normalizeVin(v)));
-        }
-      }catch(e){}
-    }
-
-    async function loadRows(){
-      showError("");
-      info.textContent = "";
+    function setSelectLoading(text){
       s.innerHTML = "";
-      const ph2 = document.createElement("option");
-      ph2.value = "";
-      ph2.textContent = "Загрузка...";
-      ph2.disabled = true;
-      ph2.selected = true;
-      s.appendChild(ph2);
+      const o = document.createElement("option");
+      o.value = "";
+      o.textContent = text;
+      o.disabled = true;
+      o.selected = true;
+      s.appendChild(o);
       s.disabled = true;
-      btns.forEach(b=>b.disabled=true);
-
-      const v = normalizeVin(vinEl.value);
-      if (!v || v.length < 4) {
-        s.innerHTML = "";
-        const ph3 = document.createElement("option");
-        ph3.value = "";
-        ph3.textContent = "Введи VIN (4+ символа)";
-        ph3.disabled = true;
-        ph3.selected = true;
-        s.appendChild(ph3);
-        s.disabled = true;
-        return;
-      }
-
-      try{
-        const res = await jsonpRequest(getLookupUrl(), { action:"deposit_rows", vin:v, limit:"25" }, 8000);
-        if (!res || !res.ok || !res.found || !Array.isArray(res.rows) || !res.rows.length) {
-          s.innerHTML = "";
-          const ph4 = document.createElement("option");
-          ph4.value = "";
-          ph4.textContent = "Активный задаток не найден";
-          ph4.disabled = true;
-          ph4.selected = true;
-          s.appendChild(ph4);
-          s.disabled = true;
-          showError("Активный (не закрытый) задаток по этому VIN не найден.");
-          return;
-        }
-
-        s.innerHTML = "";
-        const ph5 = document.createElement("option");
-        ph5.value = "";
-        ph5.textContent = "Выбери строку";
-        ph5.disabled = true;
-        ph5.selected = true;
-        s.appendChild(ph5);
-
-        res.rows.forEach(r=>{
-          const buyer = (r.buyer||"без имени").toString().trim();
-          const dt = (r.sale_date||"").toString().trim();
-          const sm = (r.deposit_sum||"").toString().trim();
-          const rowNum = r.row;
-          const opt = document.createElement("option");
-          opt.value = String(rowNum);
-          opt.textContent = `${buyer} | ${dt} | ${sm} | #${rowNum}`.slice(0, 120);
-          opt.dataset.buyer = buyer;
-          opt.dataset.dt = dt;
-          opt.dataset.sm = sm;
-          opt.dataset.status = (r.status||"").toString();
-          s.appendChild(opt);
-        });
-
-        s.disabled = false;
-        // авто выбираем первую строку
-        if (s.options.length > 1) {
-          s.selectedIndex = 1;
-          updateInfo();
-          btns.forEach(b=>b.disabled=false);
-        }
-      }catch(e){
-        s.innerHTML = "";
-        const ph6 = document.createElement("option");
-        ph6.value = "";
-        ph6.textContent = "Ошибка загрузки";
-        ph6.disabled = true;
-        ph6.selected = true;
-        s.appendChild(ph6);
-        s.disabled = true;
-        showError("Не удалось загрузить задатки. Проверь Apps Script deploy.");
-      }
     }
 
     function updateInfo(){
@@ -1211,6 +1128,108 @@
       const st = opt.dataset.status || "";
       info.textContent =
         `Покупатель: ${buyer}\nДата: ${dt}\nСумма: ${sm}` + (st ? `\nТекущий статус: ${st}` : "");
+    }
+
+    async function fetchDepositFind(vinQuery){
+      const v = normalizeVin(vinQuery);
+      if (!v || v.length < 4) return { ok:false, vins:[], items:[] };
+      const res = await jsonpRequest(getLookupUrl(), { action:"deposit_find", vin:v, limit:"60" }, 8000);
+      if (res && res.ok) {
+        const vins = Array.isArray(res.vins) ? res.vins : [];
+        const items = Array.isArray(res.items) ? res.items : [];
+        return { ok:true, vins, items };
+      }
+      return { ok:false, vins:[], items:[] };
+    }
+
+    async function suggestVins(){
+      const q = String(vinEl.value||"").trim();
+      if (!q) { updateDatalist(dlId, []); return; }
+
+      // 1) локальные подсказки (быстро)
+      const f = q.toLowerCase();
+      const local = [];
+      const base = getAllVins();
+      for (let i=0;i<base.length;i++){
+        const vv = normalizeVin(base[i]);
+        if (!vv) continue;
+        if (vv.toLowerCase().includes(f)) local.push(vv);
+        if (local.length >= 40) break;
+      }
+
+      // 2) серверные подсказки (точно из листа "Задаток") — только когда 4+ символа
+      let server = [];
+      if (normalizeVin(q).length >= 4) {
+        try{
+          const r = await fetchDepositFind(q);
+          if (r.ok && Array.isArray(r.vins)) server = r.vins.map(v=>normalizeVin(v)).filter(Boolean);
+        }catch(e){}
+      }
+
+      updateDatalist(dlId, mergeUnique(server, local).slice(0, 80));
+    }
+
+    async function loadRows(){
+      showError("");
+      info.textContent = "";
+      setSelectLoading("Загрузка...");
+      btns.forEach(b=>b.disabled=true);
+
+      const v = normalizeVin(vinEl.value);
+      if (!v || v.length < 4) {
+        setSelectLoading("Введи VIN (4+ символа)");
+        return;
+      }
+
+      try{
+        const r = await fetchDepositFind(v);
+        const items = (r && r.ok && Array.isArray(r.items)) ? r.items : [];
+
+        if (!items.length) {
+          setSelectLoading("Не найдено");
+          showError("Задаток по этому VIN не найден.");
+          return;
+        }
+
+        s.innerHTML = "";
+        const ph5 = document.createElement("option");
+        ph5.value = "";
+        ph5.textContent = "Выбери строку";
+        ph5.disabled = true;
+        ph5.selected = true;
+        s.appendChild(ph5);
+
+        items.forEach(it=>{
+          const buyer = (it.buyer||"без имени").toString().trim();
+          const dt = (it.sale_date||"").toString().trim();
+          const sm = (it.deposit_sum||"").toString().trim();
+          const st = (it.status||"").toString().trim();
+          const rowNum = it.row;
+
+          const opt = document.createElement("option");
+          opt.value = String(rowNum);
+          opt.textContent = `${buyer} | ${dt} | ${sm}` + (st ? ` | ${st}` : "") + ` | #${rowNum}`;
+          opt.textContent = opt.textContent.slice(0, 140);
+
+          opt.dataset.buyer = buyer;
+          opt.dataset.dt = dt;
+          opt.dataset.sm = sm;
+          opt.dataset.status = st;
+          s.appendChild(opt);
+        });
+
+        s.disabled = false;
+
+        // авто-выбор первой строки
+        if (s.options.length > 1) {
+          s.selectedIndex = 1;
+          updateInfo();
+          btns.forEach(b=>b.disabled=false);
+        }
+      }catch(e){
+        setSelectLoading("Ошибка загрузки");
+        showError("Не удалось загрузить задатки. Проверь Apps Script deploy (новая версия) и доступ.");
+      }
     }
 
     async function applyDepositStatus(status){
@@ -1227,11 +1246,10 @@
         const res = await jsonpRequest(getLookupUrl(), { action:"deposit_set_status", row:String(row), status:String(status) }, 8000);
         if (res && res.ok) {
           tgAlert(`✅ Статус обновлён: ${status}\nСтрока: ${row}`);
-          // обновим список
-          await loadRows();
+          await loadRows(); // обновим статус в списке
           return;
         }
-        showError("Не удалось обновить статус. Проверь права/заголовки столбцов «Статус/Закрыт».");
+        showError("Не удалось обновить статус. Проверь Apps Script и колонку J (Статус).");
       }catch(e){
         showError("Ошибка запроса. Проверь Apps Script deploy и доступ.");
       } finally {
@@ -1244,7 +1262,6 @@
       if (tmr) clearTimeout(tmr);
       tmr = setTimeout(async ()=>{
         await suggestVins();
-        // не грузим rows на каждую букву, только когда 4+ символа
         if (normalizeVin(vinEl.value).length >= 4) await loadRows();
       }, 250);
     });
@@ -2090,4 +2107,3 @@
 </script>
 </body>
 </html>
-
