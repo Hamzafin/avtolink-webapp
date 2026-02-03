@@ -1297,6 +1297,32 @@
   }
 }
 
+        // ✅ ВАЖНО: привязываем события (у тебя их сейчас нет) + закрываем функцию renderDepositStatusForm
+
+    // при смене выбранной строки — обновим инфо и включим/выключим кнопки
+    s.addEventListener("change", () => {
+      updateInfo();
+      btns.forEach(b => b.disabled = !s.value);
+    });
+
+    // подсказки VIN + подгрузка строк (debounce)
+    vinEl.addEventListener("input", () => {
+      if (tmr) clearTimeout(tmr);
+      tmr = setTimeout(() => {
+        suggestVins();
+        if (normalizeVin(vinEl.value).length >= 4) loadRows();
+      }, 450);
+    });
+
+    // если выбрали VIN из подсказок / вставили — сразу загрузим
+    vinEl.addEventListener("change", () => { suggestVins(); loadRows(); });
+    vinEl.addEventListener("blur",   () => { suggestVins(); loadRows(); });
+
+    // начальные подсказки из кэша (не обязательно, но удобно)
+    updateDatalist(dlId, getAllVins().slice(0, 80));
+  } // ✅ ЭТО ЗАКРЫВАЕТ renderDepositStatusForm()
+
+
 
 
   // ---------- Sale Main ----------
@@ -2132,6 +2158,7 @@
 </script>
 </body>
 </html>
+
 
 
 
