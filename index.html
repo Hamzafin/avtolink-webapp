@@ -1232,92 +1232,71 @@
       }
     }
 
-    
     async function applyDepositStatus(status){
-    showError("");
-    const row = Number(s.value || "0");
-    if (!row) {
-      showError("Сначала выбери нужную строку задатка.");
+  showError("");
+
+  const row = Number(s.value || "0");
+  if (!row) {
+    showError("Сначала выбери нужную строку задатка.");
+    return;
+  }
+
+  const opt = s.options[s.selectedIndex];
+  const buyer = opt?.dataset?.buyer || "";
+  const dt    = opt?.dataset?.dt || "";
+  const sum   = opt?.dataset?.sm || "";
+  const prevStatus = opt?.dataset?.status || "";
+
+  btns.forEach(b => b.disabled = true);
+
+  try {
+    const res = await jsonpRequest(
+      getLookupUrl(),
+      { action:"deposit_set_status", row:String(row), status:String(status) },
+      8000
+    );
+
+    if (res && res.ok) {
+      const vinNorm = normalizeVin(vinEl.value);
+
+      // ✅ отправляем событие в бота (чтобы бот отправил в группу)
+      const payload = {
+        formType: "deposit_status_event",
+        event: "status_changed",
+
+        vin: vinNorm,
+        buyer: buyer,
+        deposit_sum: sum,
+        deposit_date: dt,
+        status: status,
+        prev_status: prevStatus,
+        row: row,
+
+        actor: (typeof tgUserFullName === "function") ? tgUserFullName() : "",
+        actor_id: (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) || "",
+        action_ts: new Date().toISOString()
+      };
+
+      try { tg?.sendData?.(JSON.stringify(payload)); } catch(e){}
+
+      // ✅ сообщение пользователю и закрываем WebApp
+      try {
+        tgAlert(`✅ Статус задатка обновлён\nVIN: ${vinNorm}\nПокупатель: ${buyer}\nСтатус: ${status}\nДата: ${dt}`);
+      } catch(e){}
+
+      setTimeout(() => { try { tg?.close?.(); } catch(e){} }, 200);
       return;
     }
-  
-    const vin = normalizeVin(document.getElementById("depVinInput")?.value || "");
-    const opt = s.options[s.selectedIndex];
-  
-    const buyer = (opt?.dataset?.buyer || "").trim();
-    const dtRaw = (opt?.dataset?.dt || "").trim();
-    const sum = (opt?.dataset?.sm || "").trim();
-    const prevStatus = (opt?.dataset?.status || "").trim();
-  
-    // ✅ красивый формат даты (если строка парсится Date)
-    function toRuDate(any){
-      const v = String(any || "").trim();
-      if (!v) return "";
-      if (/^\d{2}\.\d{2}\.\d{4}$/.test(v)) return v;
-      const d = new Date(v);
-      if (!isNaN(d.getTime())) {
-        const dd = String(d.getDate()).padStart(2,"0");
-        const mm = String(d.getMonth()+1).padStart(2,"0");
-        const yy = d.getFullYear();
-        return `${dd}.${mm}.${yy}`;
-      }
-      return v; // как есть
-    }
-  
-    const depositDateRu = toRuDate(dtRaw);
-  
-    btns.forEach(b=>b.disabled=true);
-  
-    try{
-      const res = await jsonpRequest(
-        getLookupUrl(),
-        { action:"deposit_set_status", row:String(row), status:String(status) },
-        8000
-      );
-  
-      if (res && res.ok) {
-        // ✅ отправляем событие в бота -> бот пишет в группу менеджеров
-        const payload = {
-          formType: "deposit_status",          // ⚠️ важно: именно "deposit_status"
-          event: "status_changed",
-      
-          vin: (vin || "").toUpperCase().replace(/\s+/g, ""),
-          buyer: buyer || "",
-          deposit_sum: sum || "",
-          deposit_date: depositDateRu || "",
-          status: status,
-          prev_status: prevStatus || "",
-          row: row,
-      
-          actor: tgUserFullName ? tgUserFullName() : "",
-          actor_id: (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) || "",
-          action_ts: new Date().toISOString()
-        };
-      
-        try {
-          const tg = window.Telegram?.WebApp;
-          if (tg && typeof tg.sendData === "function") {
-            tg.sendData(JSON.stringify(payload));
-          }
-        } catch (e) {}
-      
-        // ✅ закрываем WebApp сразу после отправки
-        setTimeout(() => {
-          try { window.Telegram?.WebApp?.close(); } catch (e) {}
-        }, 150);
-      
-        return; // ✅ важно, чтобы дальше код не продолжался
-      }
-    
-      
-          showError("Не удалось обновить статус. Проверь Apps Script и колонку J (Статус).");
-        }catch(e){
-          showError("Ошибка запроса. Проверь Apps Script deploy и доступ.");
-        } finally {
-          // если не закрылось (редко) — вернём кнопки
-          if (!s.disabled && s.value) btns.forEach(b=>b.disabled=false);
-        }
-      }
+
+    showError("Не удалось обновить статус. Проверь права/заголовки столбцов «Статус».");
+  } catch (e) {
+    showError("Ошибка запроса. Проверь Apps Script deploy и доступ.");
+  } finally {
+    // если не закрыли WebApp — вернём кнопки
+    if (!s.disabled && s.value) btns.forEach(b => b.disabled = false);
+  }
+}
+
 
 
   // ---------- Sale Main ----------
@@ -2153,5 +2132,6 @@
 </script>
 </body>
 </html>
+
 
 
