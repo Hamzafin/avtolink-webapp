@@ -1276,50 +1276,49 @@
       );
   
       if (res && res.ok) {
-        // ✅ отправляем событие в бота (чтобы бот отправил в группу менеджеров)
+      if (res && res.ok) {
+        // ✅ отправляем событие в бота -> бот пишет в группу менеджеров
         const payload = {
-          formType: "deposit_status_event",
+          formType: "deposit_status",          // ⚠️ важно: именно "deposit_status"
           event: "status_changed",
-          vin: vin,
-          buyer: buyer,
-          deposit_sum: sum,
-          deposit_date: depositDateRu,
+      
+          vin: (vin || "").toUpperCase().replace(/\s+/g, ""),
+          buyer: buyer || "",
+          deposit_sum: sum || "",
+          deposit_date: depositDateRu || "",
           status: status,
-          prev_status: prevStatus,
+          prev_status: prevStatus || "",
           row: row,
-  
-          // кто нажал (вебапп)
-          actor: tgUserFullName(),
+      
+          actor: tgUserFullName ? tgUserFullName() : "",
           actor_id: (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) || "",
-  
-          // когда нажал (вебапп)
           action_ts: new Date().toISOString()
         };
-  
+      
         try {
+          const tg = window.Telegram?.WebApp;
           if (tg && typeof tg.sendData === "function") {
             tg.sendData(JSON.stringify(payload));
           }
-        } catch(e){}
-  
-        // ✅ закрываем WebApp
-        try {
-          if (tg && typeof tg.close === "function") {
-            setTimeout(() => tg.close(), 200);
-          }
-        } catch(e){}
-  
-        return;
+        } catch (e) {}
+      
+        // ✅ закрываем WebApp сразу после отправки
+        setTimeout(() => {
+          try { window.Telegram?.WebApp?.close(); } catch (e) {}
+        }, 150);
+      
+        return; // ✅ важно, чтобы дальше код не продолжался
       }
-  
-      showError("Не удалось обновить статус. Проверь Apps Script и колонку J (Статус).");
-    }catch(e){
-      showError("Ошибка запроса. Проверь Apps Script deploy и доступ.");
-    } finally {
-      // если не закрылось (редко) — вернём кнопки
-      if (!s.disabled && s.value) btns.forEach(b=>b.disabled=false);
-    }
-  }
+    
+      
+          showError("Не удалось обновить статус. Проверь Apps Script и колонку J (Статус).");
+        }catch(e){
+          showError("Ошибка запроса. Проверь Apps Script deploy и доступ.");
+        } finally {
+          // если не закрылось (редко) — вернём кнопки
+          if (!s.disabled && s.value) btns.forEach(b=>b.disabled=false);
+        }
+      }
 
 
   // ---------- Sale Main ----------
@@ -2155,4 +2154,5 @@
 </script>
 </body>
 </html>
+
 
