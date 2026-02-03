@@ -1232,47 +1232,95 @@
       }
     }
 
+    
     async function applyDepositStatus(status){
-      showError("");
-      const row = Number(s.value || "0");
-      if (!row) {
-        showError("Сначала выбери нужную строку задатка.");
+    showError("");
+    const row = Number(s.value || "0");
+    if (!row) {
+      showError("Сначала выбери нужную строку задатка.");
+      return;
+    }
+  
+    const vin = normalizeVin(document.getElementById("depVinInput")?.value || "");
+    const opt = s.options[s.selectedIndex];
+  
+    const buyer = (opt?.dataset?.buyer || "").trim();
+    const dtRaw = (opt?.dataset?.dt || "").trim();
+    const sum = (opt?.dataset?.sm || "").trim();
+    const prevStatus = (opt?.dataset?.status || "").trim();
+  
+    // ✅ красивый формат даты (если строка парсится Date)
+    function toRuDate(any){
+      const v = String(any || "").trim();
+      if (!v) return "";
+      if (/^\d{2}\.\d{2}\.\d{4}$/.test(v)) return v;
+      const d = new Date(v);
+      if (!isNaN(d.getTime())) {
+        const dd = String(d.getDate()).padStart(2,"0");
+        const mm = String(d.getMonth()+1).padStart(2,"0");
+        const yy = d.getFullYear();
+        return `${dd}.${mm}.${yy}`;
+      }
+      return v; // как есть
+    }
+  
+    const depositDateRu = toRuDate(dtRaw);
+  
+    btns.forEach(b=>b.disabled=true);
+  
+    try{
+      const res = await jsonpRequest(
+        getLookupUrl(),
+        { action:"deposit_set_status", row:String(row), status:String(status) },
+        8000
+      );
+  
+      if (res && res.ok) {
+        // ✅ отправляем событие в бота (чтобы бот отправил в группу менеджеров)
+        const payload = {
+          formType: "deposit_status_event",
+          event: "status_changed",
+          vin: vin,
+          buyer: buyer,
+          deposit_sum: sum,
+          deposit_date: depositDateRu,
+          status: status,
+          prev_status: prevStatus,
+          row: row,
+  
+          // кто нажал (вебапп)
+          actor: tgUserFullName(),
+          actor_id: (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) || "",
+  
+          // когда нажал (вебапп)
+          action_ts: new Date().toISOString()
+        };
+  
+        try {
+          if (tg && typeof tg.sendData === "function") {
+            tg.sendData(JSON.stringify(payload));
+          }
+        } catch(e){}
+  
+        // ✅ закрываем WebApp
+        try {
+          if (tg && typeof tg.close === "function") {
+            setTimeout(() => tg.close(), 200);
+          }
+        } catch(e){}
+  
         return;
       }
-
-      btns.forEach(b=>b.disabled=true);
-
-      try{
-        const res = await jsonpRequest(getLookupUrl(), { action:"deposit_set_status", row:String(row), status:String(status) }, 8000);
-        if (res && res.ok) {
-          tgAlert(`✅ Статус обновлён: ${status}\nСтрока: ${row}`);
-          await loadRows(); // обновим статус в списке
-          return;
-        }
-        showError("Не удалось обновить статус. Проверь Apps Script и колонку J (Статус).");
-      }catch(e){
-        showError("Ошибка запроса. Проверь Apps Script deploy и доступ.");
-      } finally {
-        if (!s.disabled && s.value) btns.forEach(b=>b.disabled=false);
-      }
+  
+      showError("Не удалось обновить статус. Проверь Apps Script и колонку J (Статус).");
+    }catch(e){
+      showError("Ошибка запроса. Проверь Apps Script deploy и доступ.");
+    } finally {
+      // если не закрылось (редко) — вернём кнопки
+      if (!s.disabled && s.value) btns.forEach(b=>b.disabled=false);
     }
-
-    // события
-    vinEl.addEventListener("input", ()=>{
-      if (tmr) clearTimeout(tmr);
-      tmr = setTimeout(async ()=>{
-        await suggestVins();
-        if (normalizeVin(vinEl.value).length >= 4) await loadRows();
-      }, 250);
-    });
-    vinEl.addEventListener("change", loadRows);
-    vinEl.addEventListener("blur", ()=>{ if (normalizeVin(vinEl.value).length >= 4) loadRows(); });
-
-    s.addEventListener("change", ()=>{
-      updateInfo();
-      btns.forEach(b=>b.disabled = !s.value);
-    });
   }
+
 
   // ---------- Sale Main ----------
   function applySalePresetByType(t) {
@@ -2107,3 +2155,4 @@
 </script>
 </body>
 </html>
+
