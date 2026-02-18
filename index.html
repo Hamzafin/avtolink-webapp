@@ -163,11 +163,15 @@
   const managersParam = urlParams.get("managers") || "";
   const currenciesParam = urlParams.get("currencies") || "";
 
+  /* ✅ NEW: owners list (не ломает ничего, просто поддержка, если передашь owners=...) */
+  const ownersParam = urlParams.get("owners") || "";
+
   const brands = brandsParam ? brandsParam.split("|") : [];
   const investors = investorsParam ? investorsParam.split("|") : [];
   const sources = sourcesParam ? sourcesParam.split("|") : [];
   const managers = managersParam ? managersParam.split("|") : [];
   const currencies = currenciesParam ? currenciesParam.split("|") : [];
+  const owners = ownersParam ? ownersParam.split("|") : [];
 
   const FORM_TITLES = {
     mgr_stock: "Сток",
@@ -188,6 +192,9 @@
 
     /* ✅ NEW */
     deposit_status: "Статус задатка",
+
+    /* ✅ NEW: Прочие доходы */
+    finance_other_income: "Прочие доходы",
   };
 
   function isSaleMainLike(t) {
@@ -877,6 +884,17 @@
       return;
     }
 
+    /* ✅ NEW: Финансист — Прочие доходы */
+    if (formType === "finance_other_income") {
+      formCard.appendChild(createInput("incomeDateInput", "Дата", "", todayISO(), "date", false, true));
+      formCard.appendChild(createInput("incomeArticleInput", "Статья дохода", "Например: Комиссия / Прочее", "", "text", false, true));
+      formCard.appendChild(createInput("incomeAmountInput", "Сумма, ₽", "Например: 15 000", "", "text", false, true));
+      formCard.appendChild(createTextarea("incomeCommentInput", "Комментарий (необязательно)", "", false, false));
+      setupMoneyInput("incomeAmountInput");
+      submitBtn.disabled = false;
+      return;
+    }
+
     if (formType === "mgr_stock") {
       formCard.appendChild(createSelectKV("dealTypeInput", "Тип сделки", [
         {value:"Склад", label:"Склад"},
@@ -884,6 +902,9 @@
       ], "Выберите тип сделки", true));
 
       formCard.appendChild(createSelectFromList("managerInput","Менеджер", getAllManagers(), "Выберите менеджера", true));
+
+      /* ✅ NEW: Собственник (обязательное) */
+      formCard.appendChild(createAutocompleteInput("ownerInput", "Собственник", "Например: Хамза / Партнёр / Компания", owners, true));
 
       formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "Начните вводить", getAllBrandModels(), true));
       formCard.appendChild(createInput("vinInput", "VIN (можно цифры подряд)", "Например: 1457 или полный VIN", "", "text", false, true));
@@ -1233,73 +1254,71 @@
     }
 
     async function applyDepositStatus(status){
-  showError("");
+      showError("");
 
-  const row = Number(s.value || "0");
-  if (!row) {
-    showError("Сначала выбери нужную строку задатка.");
-    return;
-  }
+      const row = Number(s.value || "0");
+      if (!row) {
+        showError("Сначала выбери нужную строку задатка.");
+        return;
+      }
 
-  const opt = s.options[s.selectedIndex];
-  const buyer = opt?.dataset?.buyer || "";
-  const dt    = opt?.dataset?.dt || "";
-  const sum   = opt?.dataset?.sm || "";
-  const prevStatus = opt?.dataset?.status || "";
+      const opt = s.options[s.selectedIndex];
+      const buyer = opt?.dataset?.buyer || "";
+      const dt    = opt?.dataset?.dt || "";
+      const sum   = opt?.dataset?.sm || "";
+      const prevStatus = opt?.dataset?.status || "";
 
-  btns.forEach(b => b.disabled = true);
+      btns.forEach(b => b.disabled = true);
 
-  try {
-    const res = await jsonpRequest(
-      getLookupUrl(),
-      { action:"deposit_set_status", row:String(row), status:String(status) },
-      8000
-    );
-
-    if (res && res.ok) {
-      const vinNorm = normalizeVin(vinEl.value);
-
-      // ✅ отправляем событие в бота (чтобы бот отправил в группу)
-      const payload = {
-        formType: "deposit_status_event",
-        event: "status_changed",
-
-        vin: vinNorm,
-        buyer: buyer,
-        deposit_sum: sum,
-        deposit_date: dt,
-        status: status,
-        prev_status: prevStatus,
-        row: row,
-
-        actor: (typeof tgUserFullName === "function") ? tgUserFullName() : "",
-        actor_id: (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) || "",
-        action_ts: new Date().toISOString()
-      };
-
-      try { tg?.sendData?.(JSON.stringify(payload)); } catch(e){}
-
-      // ✅ сообщение пользователю и закрываем WebApp
       try {
-        tgAlert(`✅ Статус задатка обновлён\nVIN: ${vinNorm}\nПокупатель: ${buyer}\nСтатус: ${status}\nДата: ${dt}`);
-      } catch(e){}
+        const res = await jsonpRequest(
+          getLookupUrl(),
+          { action:"deposit_set_status", row:String(row), status:String(status) },
+          8000
+        );
 
-      setTimeout(() => { try { tg?.close?.(); } catch(e){} }, 200);
-      return;
+        if (res && res.ok) {
+          const vinNorm = normalizeVin(vinEl.value);
+
+          // ✅ отправляем событие в бота (чтобы бот отправил в группу)
+          const payload = {
+            formType: "deposit_status_event",
+            event: "status_changed",
+
+            vin: vinNorm,
+            buyer: buyer,
+            deposit_sum: sum,
+            deposit_date: dt,
+            status: status,
+            prev_status: prevStatus,
+            row: row,
+
+            actor: (typeof tgUserFullName === "function") ? tgUserFullName() : "",
+            actor_id: (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) || "",
+            action_ts: new Date().toISOString()
+          };
+
+          try { tg?.sendData?.(JSON.stringify(payload)); } catch(e){}
+
+          // ✅ сообщение пользователю и закрываем WebApp
+          try {
+            tgAlert(`✅ Статус задатка обновлён\nVIN: ${vinNorm}\nПокупатель: ${buyer}\nСтатус: ${status}\nДата: ${dt}`);
+          } catch(e){}
+
+          setTimeout(() => { try { tg?.close?.(); } catch(e){} }, 200);
+          return;
+        }
+
+        showError("Не удалось обновить статус. Проверь права/заголовки столбцов «Статус».");
+      } catch (e) {
+        showError("Ошибка запроса. Проверь Apps Script deploy и доступ.");
+      } finally {
+        // если не закрыли WebApp — вернём кнопки
+        if (!s.disabled && s.value) btns.forEach(b => b.disabled = false);
+      }
     }
 
-    showError("Не удалось обновить статус. Проверь права/заголовки столбцов «Статус».");
-  } catch (e) {
-    showError("Ошибка запроса. Проверь Apps Script deploy и доступ.");
-  } finally {
-    // если не закрыли WebApp — вернём кнопки
-    if (!s.disabled && s.value) btns.forEach(b => b.disabled = false);
-  }
-}
-
-        // ✅ ВАЖНО: привязываем события (у тебя их сейчас нет) + закрываем функцию renderDepositStatusForm
-
-    // при смене выбранной строки — обновим инфо и включим/выключим кнопки
+    // ✅ ВАЖНО: привязываем события
     s.addEventListener("change", () => {
       updateInfo();
       btns.forEach(b => b.disabled = !s.value);
@@ -1318,12 +1337,9 @@
     vinEl.addEventListener("change", () => { suggestVins(); loadRows(); });
     vinEl.addEventListener("blur",   () => { suggestVins(); loadRows(); });
 
-    // начальные подсказки из кэша (не обязательно, но удобно)
+    // начальные подсказки из кэша
     updateDatalist(dlId, getAllVins().slice(0, 80));
   } // ✅ ЭТО ЗАКРЫВАЕТ renderDepositStatusForm()
-
-
-
 
   // ---------- Sale Main ----------
   function applySalePresetByType(t) {
@@ -1347,6 +1363,9 @@
     formCard.innerHTML = "";
 
     formCard.appendChild(createSelectFromList("managerInput","Менеджер", getAllManagers(), "Выберите менеджера", true));
+
+    /* ✅ NEW: Собственник (обязательное) */
+    formCard.appendChild(createAutocompleteInput("ownerInput", "Собственник", "Например: Хамза / Партнёр / Компания", owners, true));
 
     const payWrap = createSelectKV("salePaymentTypeInput", "Оплата", [
       {value:"cash", label:"Нал"},
@@ -1894,6 +1913,10 @@
     const payload = { formType };
 
     payload.manager = document.getElementById("managerInput")?.value || "";
+
+    /* ✅ NEW: owner */
+    payload.owner = document.getElementById("ownerInput")?.value || "";
+
     payload.sale_date = getRuDate("saleDateInput");
     payload.brand_model = document.getElementById("brandModelInput")?.value || "";
     payload.vin = document.getElementById("vinInput")?.value || "";
@@ -1940,6 +1963,10 @@
     if (formType === "mgr_stock") {
       payload.deal_type = document.getElementById("dealTypeInput")?.value || "";
       payload.manager = document.getElementById("managerInput")?.value || "";
+
+      /* ✅ NEW: owner */
+      payload.owner = document.getElementById("ownerInput")?.value || "";
+
       payload.brand_model = document.getElementById("brandModelInput")?.value || "";
       payload.vin = document.getElementById("vinInput")?.value || "";
       payload.complectation = document.getElementById("configInput")?.value || "";
@@ -1949,6 +1976,17 @@
       payload.stock_date = getRuDate("stockDateInput");
       payload.payment_type = document.getElementById("payTypeInput")?.value || "";
       payload.client = document.getElementById("clientInput")?.value || "";
+      return payload;
+    }
+
+    /* ✅ NEW: Финансист — Прочие доходы */
+    if (formType === "finance_other_income") {
+      payload.type = "finance_other_income"; // на всякий случай, если бот ждёт 'type'
+      payload.date = document.getElementById("incomeDateInput")?.value || ""; // YYYY-MM-DD
+      payload.article = document.getElementById("incomeArticleInput")?.value || "";
+      payload.amount = toNum(document.getElementById("incomeAmountInput")?.value || "");
+      payload.comment = document.getElementById("incomeCommentInput")?.value || "";
+      payload.currency = "RUB";
       return payload;
     }
 
@@ -2099,6 +2137,10 @@
 
   rememberField("managerInput", "avtolink_last_manager", tgUserFullName());
   rememberField("leadSourceInput", "avtolink_last_source", "");
+
+  /* ✅ NEW: remember owner */
+  rememberField("ownerInput", "avtolink_last_owner", "");
+
   try {
     const src = document.getElementById("leadSourceInput");
     if (src) src.value = "";
@@ -2158,7 +2200,4 @@
 </script>
 </body>
 </html>
-
-
-
 
