@@ -163,7 +163,7 @@
   const managersParam = urlParams.get("managers") || "";
   const currenciesParam = urlParams.get("currencies") || "";
 
-  /* ✅ NEW: owners list (не ломает ничего, просто поддержка, если передашь owners=...) */
+  /* ✅ NEW (у тебя уже было): owners list support from URL */
   const ownersParam = urlParams.get("owners") || "";
 
   const brands = brandsParam ? brandsParam.split("|") : [];
@@ -193,8 +193,9 @@
     /* ✅ NEW */
     deposit_status: "Статус задатка",
 
-    /* ✅ NEW: Прочие доходы */
+    /* ✅ NEW: Прочие доходы (две версии для совместимости) */
     finance_other_income: "Прочие доходы",
+    fin_other_income: "Прочие доходы",
   };
 
   function isSaleMainLike(t) {
@@ -215,7 +216,10 @@
       "fin_oper",
       "boss_buy",
       "boss_invest_in",
-      "boss_invest_out"
+      "boss_invest_out",
+      /* ✅ NEW: прочие доходы */
+      "finance_other_income",
+      "fin_other_income",
     ].includes(String(t||""));
   }
 
@@ -310,6 +314,8 @@
     VIN_SOURCE_MAP: "avtolink_vin_source_map",
     REMOTE_TS: "avtolink_remote_ts_" + APP_VERSION,
     SCHEMA: "avtolink_schema_v1",
+    /* ✅ NEW: owners cache */
+    OWNERS: "avtolink_owners",
   };
 
   function lsRead(key, fallback){
@@ -336,6 +342,9 @@
       localStorage.removeItem(LS_KEYS.EXP_CATS);
       localStorage.removeItem(LS_KEYS.EXP_ARTICLES);
       localStorage.removeItem(LS_KEYS.VIN_SOURCE_MAP);
+      /* ✅ NEW */
+      localStorage.removeItem(LS_KEYS.OWNERS);
+
       localStorage.setItem(LS_KEYS.SCHEMA, String(APP_VERSION));
     }
   } catch(e){}
@@ -740,6 +749,8 @@
     expense_articles: [],
     suppliers: [],
     places: [],
+    /* ✅ NEW */
+    owners: [],
   };
 
   function getAllVins() {
@@ -761,6 +772,10 @@
   function getAllExpenseArticles() {
     return mergeUnique(remoteCache.expense_articles, lsReadArr(LS_KEYS.EXP_ARTICLES));
   }
+  /* ✅ NEW: owners merged list */
+  function getAllOwners() {
+    return mergeUnique(owners, remoteCache.owners, lsReadArr(LS_KEYS.OWNERS));
+  }
 
   async function remoteListsLoad(force=false) {
     if (!canUseLookup()) return;
@@ -779,6 +794,9 @@
 
         remoteCache.expense_articles = Array.isArray(L.expense_articles) ? L.expense_articles : remoteCache.expense_articles;
 
+        /* ✅ NEW: owners from Apps Script */
+        remoteCache.owners = Array.isArray(L.owners) ? L.owners : remoteCache.owners;
+
         // ✅ фильтруем источники от менеджеров
         remoteCache.sources = removeManagersFromSources(remoteCache.sources, remoteCache.managers);
 
@@ -794,6 +812,9 @@
 
         if (remoteCache.expense_categories.length) lsWriteArr(LS_KEYS.EXP_CATS, mergeUnique(remoteCache.expense_categories, lsReadArr(LS_KEYS.EXP_CATS)), 2000);
         if (remoteCache.expense_articles.length) lsWriteArr(LS_KEYS.EXP_ARTICLES, mergeUnique(remoteCache.expense_articles, lsReadArr(LS_KEYS.EXP_ARTICLES)), 2000);
+
+        /* ✅ NEW: cache owners */
+        if (remoteCache.owners.length) lsWriteArr(LS_KEYS.OWNERS, mergeUnique(remoteCache.owners, lsReadArr(LS_KEYS.OWNERS)), 2000);
 
         // refresh datalists/selects if present
         updateDatalist("vinInput_list", getAllVins());
@@ -812,6 +833,9 @@
 
         updateDatalist("supplierInput_list", mergeUnique(remoteCache.suppliers, lsReadArr("boss_buy_suppliers")));
         updateDatalist("placeInput_list", mergeUnique(remoteCache.places, lsReadArr("boss_buy_places")));
+
+        /* ✅ NEW: owners datalist */
+        updateDatalist("ownerInput_list", getAllOwners());
       }
     } catch (e) {
       console.warn("remoteListsLoad failed:", e);
@@ -884,8 +908,8 @@
       return;
     }
 
-    /* ✅ NEW: Финансист — Прочие доходы */
-    if (formType === "finance_other_income") {
+    /* ✅ FIX: Прочие доходы — поддержка двух type */
+    if (formType === "finance_other_income" || formType === "fin_other_income") {
       formCard.appendChild(createInput("incomeDateInput", "Дата", "", todayISO(), "date", false, true));
       formCard.appendChild(createInput("incomeArticleInput", "Статья дохода", "Например: Комиссия / Прочее", "", "text", false, true));
       formCard.appendChild(createInput("incomeAmountInput", "Сумма, ₽", "Например: 15 000", "", "text", false, true));
@@ -903,8 +927,8 @@
 
       formCard.appendChild(createSelectFromList("managerInput","Менеджер", getAllManagers(), "Выберите менеджера", true));
 
-      /* ✅ NEW: Собственник (обязательное) */
-      formCard.appendChild(createAutocompleteInput("ownerInput", "Собственник", "Например: Хамза / Партнёр / Компания", owners, true));
+      /* ✅ Собственник: теперь берём из getAllOwners() (URL + LS + Apps Script) */
+      formCard.appendChild(createAutocompleteInput("ownerInput", "Собственник", "Например: Хамза / Партнёр / Компания", getAllOwners(), true));
 
       formCard.appendChild(createAutocompleteInput("brandModelInput", "Марка / Модель", "Начните вводить", getAllBrandModels(), true));
       formCard.appendChild(createInput("vinInput", "VIN (можно цифры подряд)", "Например: 1457 или полный VIN", "", "text", false, true));
@@ -1364,8 +1388,8 @@
 
     formCard.appendChild(createSelectFromList("managerInput","Менеджер", getAllManagers(), "Выберите менеджера", true));
 
-    /* ✅ NEW: Собственник (обязательное) */
-    formCard.appendChild(createAutocompleteInput("ownerInput", "Собственник", "Например: Хамза / Партнёр / Компания", owners, true));
+    /* ✅ Собственник: теперь берём из getAllOwners() (URL + LS + Apps Script) */
+    formCard.appendChild(createAutocompleteInput("ownerInput", "Собственник", "Например: Хамза / Партнёр / Компания", getAllOwners(), true));
 
     const payWrap = createSelectKV("salePaymentTypeInput", "Оплата", [
       {value:"cash", label:"Нал"},
@@ -1914,7 +1938,7 @@
 
     payload.manager = document.getElementById("managerInput")?.value || "";
 
-    /* ✅ NEW: owner */
+    /* ✅ owner */
     payload.owner = document.getElementById("ownerInput")?.value || "";
 
     payload.sale_date = getRuDate("saleDateInput");
@@ -1964,7 +1988,7 @@
       payload.deal_type = document.getElementById("dealTypeInput")?.value || "";
       payload.manager = document.getElementById("managerInput")?.value || "";
 
-      /* ✅ NEW: owner */
+      /* ✅ owner */
       payload.owner = document.getElementById("ownerInput")?.value || "";
 
       payload.brand_model = document.getElementById("brandModelInput")?.value || "";
@@ -1979,9 +2003,10 @@
       return payload;
     }
 
-    /* ✅ NEW: Финансист — Прочие доходы */
-    if (formType === "finance_other_income") {
-      payload.type = "finance_other_income"; // на всякий случай, если бот ждёт 'type'
+    /* ✅ FIX: Прочие доходы — поддержка двух type, и отправляем formType = fin_other_income */
+    if (formType === "finance_other_income" || formType === "fin_other_income") {
+      payload.formType = "fin_other_income";
+      payload.type = "fin_other_income";
       payload.date = document.getElementById("incomeDateInput")?.value || ""; // YYYY-MM-DD
       payload.article = document.getElementById("incomeArticleInput")?.value || "";
       payload.amount = toNum(document.getElementById("incomeAmountInput")?.value || "");
@@ -2138,7 +2163,7 @@
   rememberField("managerInput", "avtolink_last_manager", tgUserFullName());
   rememberField("leadSourceInput", "avtolink_last_source", "");
 
-  /* ✅ NEW: remember owner */
+  /* ✅ remember owner */
   rememberField("ownerInput", "avtolink_last_owner", "");
 
   try {
@@ -2200,4 +2225,3 @@
 </script>
 </body>
 </html>
-
