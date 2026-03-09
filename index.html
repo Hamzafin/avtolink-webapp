@@ -580,10 +580,53 @@
 
   // ---------- money formatting ----------
   function digitsOnly(s){ return String(s||"").replace(/[^\d]/g, ""); }
+
+  function normalizeMoneyString(raw) {
+    let s = String(raw || "").trim();
+
+    // убираем пробелы
+    s = s.replace(/\s+/g, "");
+
+    // оставляем только цифры, минус, точку и запятую
+    s = s.replace(/[^\d,.\-]/g, "");
+
+    // минус допускаем только в начале
+    const isNegative = s.startsWith("-");
+    s = s.replace(/\-/g, "");
+    if (isNegative) s = "-" + s;
+
+    // последний разделитель считаем дробной частью
+    const lastComma = s.lastIndexOf(",");
+    const lastDot = s.lastIndexOf(".");
+    const sepIndex = Math.max(lastComma, lastDot);
+
+    let intPart = s;
+    let fracPart = "";
+    let hasSeparator = false;
+
+    if (sepIndex !== -1) {
+      hasSeparator = true;
+      intPart = s.slice(0, sepIndex);
+      fracPart = s.slice(sepIndex + 1).replace(/[^\d]/g, "");
+    }
+
+    const negative = intPart.startsWith("-");
+    intPart = intPart.replace(/[^\d]/g, "");
+
+    if (!intPart) intPart = "0";
+    intPart = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+
+    let result = (negative ? "-" : "") + intPart;
+
+    if (hasSeparator) {
+      result += "," + fracPart;
+    }
+
+    return result;
+  }
+
   function formatWithSpaces(numStr){
-    const s = digitsOnly(numStr);
-    if (!s) return "";
-    return s.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+    return normalizeMoneyString(numStr);
   }
 
   // ✅ iOS fix: меньше вмешиваемся в ввод (форматируем на blur)
@@ -1594,10 +1637,15 @@
 
   // ---------- Auto profit (sale_extra) ----------
   function toNum(v){
-    const s = String(v||"").replace(/\s/g,"").replace(",",".").replace(/[^\d.\-]/g,"");
+    const s = String(v || "")
+      .replace(/\s/g, "")
+      .replace(",", ".")
+      .replace(/[^\d.\-]/g, "");
+
     const n = parseFloat(s);
     return Number.isFinite(n) ? n : 0;
   }
+
   function setupAutoProfit(){
     const priceEl = document.getElementById("priceInput");
     const buyEl = document.getElementById("buyPriceInput");
@@ -2225,4 +2273,3 @@
 </script>
 </body>
 </html>
-
