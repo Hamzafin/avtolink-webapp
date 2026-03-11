@@ -584,16 +584,25 @@
   function normalizeMoneyString(raw) {
     let s = String(raw || "").trim();
 
+    // пустое поле остаётся пустым
+    if (!s) return "";
+
     // убираем пробелы
     s = s.replace(/\s+/g, "");
 
     // оставляем только цифры, минус, точку и запятую
     s = s.replace(/[^\d,.\-]/g, "");
 
+    // если после чистки пусто — оставляем пусто
+    if (!s) return "";
+
     // минус допускаем только в начале
     const isNegative = s.startsWith("-");
     s = s.replace(/\-/g, "");
     if (isNegative) s = "-" + s;
+
+    // если остался только минус — не превращаем в 0
+    if (s === "-") return "-";
 
     // последний разделитель считаем дробной частью
     const lastComma = s.lastIndexOf(",");
@@ -613,7 +622,12 @@
     const negative = intPart.startsWith("-");
     intPart = intPart.replace(/[^\d]/g, "");
 
-    if (!intPart) intPart = "0";
+    // если ничего не ввели слева, но есть разделитель — делаем 0,..
+    if (!intPart && hasSeparator) intPart = "0";
+
+    // если вообще нет цифр — оставляем пусто
+    if (!intPart && !fracPart) return negative ? "-" : "";
+
     intPart = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 
     let result = (negative ? "-" : "") + intPart;
@@ -637,7 +651,8 @@
 
     const formatNow = () => {
       const raw = el.value;
-      el.value = formatWithSpaces(raw);
+      const formatted = formatWithSpaces(raw);
+      el.value = (formatted === "-" ? "" : formatted);
     };
 
     if (IS_IOS) {
@@ -646,12 +661,19 @@
     }
 
     const onInput = () => {
-      const start = el.selectionStart || 0;
       const raw = el.value;
+
+      // если поле пустое — оставляем пустым
+      if (!String(raw || "").trim()) {
+        el.value = "";
+        return;
+      }
+
+      const start = el.selectionStart || 0;
       const beforeDigits = digitsOnly(raw.slice(0, start)).length;
 
       const formatted = formatWithSpaces(raw);
-      el.value = formatted;
+      el.value = (formatted === "-" ? "" : formatted);
 
       let pos = 0;
       let seenDigits = 0;
@@ -663,7 +685,7 @@
     };
 
     el.addEventListener("input", onInput);
-    el.addEventListener("blur", onInput);
+    el.addEventListener("blur", formatNow);
   }
 
   // ---------- Smart VIN datalist (includes) ----------
